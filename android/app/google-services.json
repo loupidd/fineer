@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "102608046466",
+    "project_id": "fineer-fix",
+    "storage_bucket": "fineer-fix.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:102608046466:android:76319a42f5cfe1174ba79b",
+        "android_client_info": {
+          "package_name": "com.example.fineer_1"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC9XRaGMCDXW1zLbyfAG_EoVIkfBdDUJjY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
