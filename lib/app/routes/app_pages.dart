@@ -1,6 +1,7 @@
 import 'package:fineer/app/modules/login/bindings/login_binding.dart';
 import 'package:fineer/app/modules/login/views/login_view.dart';
 import 'package:get/get.dart';
+import 'package:fineer/main.dart';
 
 import '../modules/add_pegawai/bindings/add_pegawai_binding.dart';
 import '../modules/add_pegawai/views/add_pegawai_view.dart';
@@ -56,5 +57,10 @@ class AppPages {
         page: () => OvertimeView(),
         binding: OvertimeBinding(),
         transition: Transition.fadeIn),
+    GetPage(
+      name: _Paths.SPLASH,
+      page: () => const SplashScreen(),
+      transition: Transition.fadeIn,
+    ),
   ];
 }

@@ -9,40 +9,6 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'package:lottie/lottie.dart';
 
-class FineerApp extends StatelessWidget {
-  const FineerApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder(
-      stream: FirebaseAuth.instance.authStateChanges(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return MaterialApp(
-            home: Scaffold(
-              body: Center(
-                child: ListView(
-                  children: [
-                    const CircularProgressIndicator(),
-                    Lottie.asset('assets/fineer_lottie.json'),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }
-
-        return GetMaterialApp(
-          debugShowCheckedModeBanner: false,
-          title: "Application",
-          initialRoute: snapshot.data != null ? Routes.HOME : Routes.LOGIN,
-          getPages: AppPages.routes,
-        );
-      },
-    );
-  }
-}
-
 //  main() function
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -50,5 +16,47 @@ void main() async {
 
   final pageC = Get.put(PageIndexController(), permanent: true);
 
-  runApp(const FineerApp()); // Use the FineerApp widget here
+  runApp(const FineerApp());
+}
+
+// SplashScreen Class
+class SplashScreen extends StatelessWidget {
+  const SplashScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    Future.delayed(const Duration(seconds: 2), () {
+      FirebaseAuth.instance.authStateChanges().first.then((user) {
+        if (user != null) {
+          Get.offAllNamed(Routes.HOME);
+        } else {
+          Get.offAllNamed(Routes.LOGIN);
+        }
+      });
+    });
+
+    return Scaffold(
+      body: Center(
+        child: Lottie.asset('lib/assets/fineer_lottie.json'),
+      ),
+    );
+  }
+}
+
+//Main Widget - FineerApp
+class FineerApp extends StatelessWidget {
+  const FineerApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return GetMaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: "Fineer",
+      initialRoute: Routes.SPLASH,
+      getPages: AppPages.routes,
+      theme: ThemeData(
+        scaffoldBackgroundColor: Colors.white, // 👈 Set global background
+      ),
+    );
+  }
 }

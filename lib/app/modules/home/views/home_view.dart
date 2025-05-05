@@ -101,7 +101,9 @@ class HomeView extends GetView<HomeController> {
                                 borderRadius: BorderRadius.circular(36)),
                             backgroundColor: Colors.red,
                             elevation: 0),
-                        child: Text('Sign Out'),
+                        child: Text('Sign Out',
+                            style: TextStyle(
+                                color: Color.fromARGB(255, 255, 247, 247))),
                       )
                     ],
                   ),
@@ -227,6 +229,8 @@ class HomeView extends GetView<HomeController> {
                           onPressed: () => Get.toNamed(Routes.ALL_PRESENSI),
                           child: Text(
                             'See More',
+                            style: TextStyle(
+                                color: Color.fromARGB(255, 55, 130, 236)),
                           ))
                     ],
                   ),
