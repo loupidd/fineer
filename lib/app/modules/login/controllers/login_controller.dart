@@ -28,18 +28,25 @@ class LoginController extends GetxController {
         //Login Logics
         Get.offAllNamed(Routes.HOME);
       } on FirebaseAuthException catch (e) {
+        //Firebase Error handling
+        isLoading.value = false;
+        Get.back();
+
         if (e.code == 'user-not-found') {
-          Get.back();
           Get.snackbar('Terjadi Kesalahan', 'User tidak ditemukan');
-        } else if (emailC.text.isNotEmpty && passC.text.isNotEmpty) {
-          Get.back();
+        } else if (e.code == 'wrong-password') {
           Get.snackbar('Terjadi Kesalahan', 'Password Salah');
+        } else {
+          Get.snackbar('Terjadi Kesalahan', 'Tidak Dapat Login');
         }
       } catch (e) {
+        isLoading.value = false; // Reset Login State
         Get.back();
         Get.snackbar(('Terjadi Kesalahan'), 'Tidak Dapat Login');
       }
     } else {
+      // Error ifEmpty
+      isLoading.value = false;
       Get.back();
       Get.snackbar('Terjadi Kesalahan', 'Email & Password harus diisi');
     }

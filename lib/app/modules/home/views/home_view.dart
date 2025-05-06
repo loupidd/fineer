@@ -92,18 +92,50 @@ class HomeView extends GetView<HomeController> {
                         ),
                       ),
                       ElevatedButton(
-                        onPressed: () async {
-                          await auth.signOut();
-                          Get.offAllNamed(Routes.LOGIN);
+                        onPressed: () {
+                          Get.defaultDialog(
+                            title: "Keluar",
+                            middleText: "Apakah yakin ingin keluar?",
+                            confirm: ElevatedButton(
+                              onPressed: () async {
+                                try {
+                                  await auth.signOut();
+                                  Get.offAllNamed(Routes.LOGIN);
+                                } catch (e) {
+                                  Get.snackbar('Error', 'Gagal logout: $e');
+                                }
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(36),
+                                ),
+                                elevation: 0,
+                              ),
+                              child: const Text(
+                                "Ya",
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                            cancel: TextButton(
+                              onPressed: () => Get.back(),
+                              child: const Text("Batal"),
+                            ),
+                          );
                         },
                         style: ElevatedButton.styleFrom(
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(36)),
-                            backgroundColor: Colors.red,
-                            elevation: 0),
-                        child: Text('Sign Out',
-                            style: TextStyle(
-                                color: Color.fromARGB(255, 255, 247, 247))),
+                          backgroundColor: Colors.red,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(36),
+                          ),
+                          elevation: 0,
+                        ),
+                        child: const Text(
+                          'Sign Out',
+                          style: TextStyle(
+                            color: Color.fromARGB(255, 255, 247, 247),
+                          ),
+                        ),
                       )
                     ],
                   ),

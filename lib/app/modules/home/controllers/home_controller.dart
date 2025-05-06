@@ -12,14 +12,17 @@ class HomeController extends GetxController {
   FirebaseAuth auth = FirebaseAuth.instance;
   FirebaseFirestore firestore = FirebaseFirestore.instance;
 
+  // Stream to fetch user data from Firestore
   Stream<DocumentSnapshot<Map<String, dynamic>>> streamUser() async* {
-    String uid = auth.currentUser!.uid;
-
-    yield* firestore.collection("pegawai").doc(uid).snapshots();
+    if (auth.currentUser == null) {
+      yield* const Stream.empty();
+    } else {
+      String uid = auth.currentUser!.uid;
+      yield* firestore.collection("pegawai").doc(uid).snapshots();
+    }
   }
 
-  //Last 5 Days Widget
-
+  // Stream to get last 5 presence records for the user
   Stream<QuerySnapshot<Map<String, dynamic>>> streamLastPresence() async* {
     String uid = auth.currentUser!.uid;
 
@@ -32,8 +35,7 @@ class HomeController extends GetxController {
         .snapshots();
   }
 
-  //Today Presence
-
+  // Stream to get today's presence record for the user
   Stream<DocumentSnapshot<Map<String, dynamic>>> streamTodayPresence() async* {
     String uid = auth.currentUser!.uid;
 
