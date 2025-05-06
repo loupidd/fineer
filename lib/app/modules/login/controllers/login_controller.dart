@@ -4,6 +4,7 @@ import 'package:fineer/app/routes/app_pages.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class LoginController extends GetxController {
   RxBool isLoading = false.obs;
@@ -20,6 +21,11 @@ class LoginController extends GetxController {
         UserCredential userCredential = await auth.signInWithEmailAndPassword(
             email: emailC.text, password: passC.text);
 
+        //Login Timestamp
+        final prefs = await SharedPreferences.getInstance();
+        prefs.setInt('loginTimestamp', DateTime.now().millisecondsSinceEpoch);
+
+        //Login Logics
         Get.offAllNamed(Routes.HOME);
       } on FirebaseAuthException catch (e) {
         if (e.code == 'user-not-found') {

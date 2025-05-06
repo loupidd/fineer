@@ -27,7 +27,7 @@
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
-	<string>Main</string>
+	<string>Main</string> 
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
@@ -45,5 +45,10 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Location Access-->
+	<key>NSLocationWhenInUseUsageDescription</key>	
+	<string>We need your location while using the app.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>This app needs your location even in the background for better tracking.</string>
 </dict>
 </plist>
