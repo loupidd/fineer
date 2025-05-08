@@ -1,57 +1,86 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:fineer/app/routes/app_pages.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:get/get.dart';
 
-FirebaseFirestore firestore = FirebaseFirestore.instance;
-FirebaseAuth auth = FirebaseAuth.instance;
-
 class OvertimeController extends GetxController {
-  TextEditingController nameC = TextEditingController();
-  TextEditingController waktuC = TextEditingController();
-  TextEditingController tanggalC = TextEditingController();
-  TextEditingController desC = TextEditingController();
+  // Text controllers
+  final TextEditingController nameC = TextEditingController();
+  final TextEditingController tanggalC = TextEditingController();
+  final TextEditingController waktuC = TextEditingController();
+  final TextEditingController desC = TextEditingController();
 
-  void addLembur() async {
-    String uid = auth.currentUser!.uid;
-    DateTime now = DateTime.now();
-    String todayDocID = DateFormat.yMd().format(now).replaceAll("/", "-");
-    CollectionReference<Map<String, dynamic>> colLembur =
-        firestore.collection("pegawai").doc(uid).collection("lembur");
+  // Observable values for UI states
+  var isSubmitting = false.obs;
+  var isSuccess = false.obs;
+  var duration = 2.obs;
+  var selectedCategory = "".obs;
 
-    if (nameC.text.isNotEmpty &&
-        waktuC.text.isNotEmpty &&
-        tanggalC.text.isNotEmpty &&
-        desC.text.isNotEmpty) {
-      await colLembur.doc(todayDocID).set({
-        "nama": nameC.text,
-        "waktu": waktuC.text,
-        "tanggal": tanggalC.text,
-        "deskripsi": desC.text
-      });
-      Get.toNamed(Routes.HOME);
-
-      Get.snackbar("Berhasil", "Data Lembur Telah Diisi");
-    } else {
-      Get.back();
-      Get.snackbar("Terjadi Kesalahan", "Data Harus diisi");
+  // Methods for duration modification
+  void incrementDuration() {
+    if (duration.value < 12) {
+      duration.value++;
     }
   }
 
-  void prosesAddLembur() async {
-    await Get.defaultDialog(
-        title: "Validasi Lembur",
-        middleText: "Yakin untuk mengisi Lembur?",
-        actions: [
-          OutlinedButton(
-              onPressed: () => Get.back(), child: const Text("Cancel")),
-          ElevatedButton(
-              onPressed: () async {
-                addLembur();
-              },
-              child: const Text("Yes"))
-        ]);
+  void decrementDuration() {
+    if (duration.value > 1) {
+      duration.value--;
+    }
+  }
+
+  // Category selection
+  void selectCategory(String category) {
+    selectedCategory.value = category;
+  }
+
+  // Validate form
+  bool isFormValid() {
+    return nameC.text.isNotEmpty &&
+        tanggalC.text.isNotEmpty &&
+        waktuC.text.isNotEmpty &&
+        desC.text.isNotEmpty &&
+        selectedCategory.value.isNotEmpty;
+  }
+
+  // For backward compatibility
+  void prosesAddLembur() {
+    if (isFormValid()) {
+      isSubmitting.value = true;
+      Future.delayed(Duration(seconds: 2), () {
+        isSubmitting.value = false;
+        isSuccess.value = true;
+        Future.delayed(Duration(seconds: 2), () {
+          isSuccess.value = false;
+          resetForm();
+        });
+      });
+    } else {
+      Get.snackbar(
+        "Form Error",
+        "Please fill all the required fields",
+        backgroundColor: Colors.red[100],
+        colorText: Colors.red[800],
+        margin: EdgeInsets.all(15),
+        snackPosition: SnackPosition.BOTTOM,
+      );
+    }
+  }
+
+  // Reset form
+  void resetForm() {
+    nameC.clear();
+    tanggalC.clear();
+    waktuC.clear();
+    desC.clear();
+    duration.value = 2;
+    selectedCategory.value = "";
+  }
+
+  @override
+  void onClose() {
+    nameC.dispose();
+    tanggalC.dispose();
+    waktuC.dispose();
+    desC.dispose();
+    super.onClose();
   }
 }

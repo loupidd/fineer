@@ -17,6 +17,23 @@ class PageIndexController extends GetxController {
   FirebaseAuth auth = FirebaseAuth.instance;
   FirebaseFirestore firestore = FirebaseFirestore.instance;
 
+  // Define our office locations
+  final List<Map<String, dynamic>> officeLocations = [
+    {
+      "name": "Essence Darmawangsa",
+      "lat": -6.25885702739295,
+      "long": 106.80418446522982,
+    },
+    {
+      "name": "Nifarro Park",
+      "lat": -6.2634839,
+      "long": 106.8441253,
+    },
+  ];
+
+  // Define radius in meters
+  final double officeRadius = 600.0;
+
   void changePage(int i) async {
     pageIndex.value = i;
     switch (i) {
@@ -33,16 +50,8 @@ class PageIndexController extends GetxController {
               " ${placemarks[0].street},${placemarks[0].subLocality},${placemarks[0].locality}";
           await updatePosition(position, address);
 
-          //check distance between 2 position
-          double distance = Geolocator.distanceBetween(
-              -6.25791, 106.80538, position.latitude, position.longitude);
-
-          //Presensi
-          await presensi(
-            position,
-            address,
-            distance,
-          );
+          // Check distance to both office locations
+          await checkPresenceInOffice(position, address);
         } else {
           Get.snackbar("Terjadi Kesalahan", dataResponse["message"]);
         }
@@ -53,17 +62,57 @@ class PageIndexController extends GetxController {
         Get.offAllNamed(Routes.OVERTIME);
         break;
       default:
-        pageIndex.value - i;
+        pageIndex.value = i;
         Get.offAllNamed(Routes.HOME);
     }
   }
 
-  //Presensi
+  // Check if user is near any office location
+  Future<void> checkPresenceInOffice(Position position, String address) async {
+    // Initialize variables to track closest office and distance
+    String closestOfficeName = "";
+    double shortestDistance = double.infinity;
+    bool isInRange = false;
 
+    // Check distance to each office location
+    for (var office in officeLocations) {
+      double distance = Geolocator.distanceBetween(
+        office["lat"],
+        office["long"],
+        position.latitude,
+        position.longitude,
+      );
+
+      // Keep track of the closest office
+      if (distance < shortestDistance) {
+        shortestDistance = distance;
+        closestOfficeName = office["name"];
+      }
+
+      // If within radius of any office, mark as in range
+      if (distance <= officeRadius) {
+        isInRange = true;
+        break;
+      }
+    }
+
+    // Proceed with attendance
+    await presensi(
+      position,
+      address,
+      shortestDistance,
+      isInRange,
+      closestOfficeName,
+    );
+  }
+
+  //Presensi
   Future<void> presensi(
     Position position,
     String address,
     double distance,
+    bool isInRange,
+    String officeName,
   ) async {
     String uid = await auth.currentUser!.uid;
     CollectionReference<Map<String, dynamic>> colPresence =
@@ -74,17 +123,18 @@ class PageIndexController extends GetxController {
     DateTime now = DateTime.now();
     String todayDocID = DateFormat.yMd().format(now).replaceAll("/", "-");
 
-    String status = "Di luar Area";
+    String status = isInRange ? "Di dalam Area" : "Di luar Area";
+    String locationInfo = isInRange
+        ? "Lokasi: $officeName (${distance.toStringAsFixed(2)}m)"
+        : "Jarak ke lokasi terdekat: ${distance.toStringAsFixed(2)}m ($officeName)";
 
-    if (distance <= 15) {
-      status = "Di dalam Area";
-
+    if (isInRange) {
       if (snapPresence.docs.isEmpty) {
         //Belum pernah absen
-
         await Get.defaultDialog(
             title: "Validasi Presensi",
-            middleText: "Yakin untuk mengisi absen MASUK sekarang?",
+            middleText:
+                "Yakin untuk mengisi absen MASUK sekarang?\n$locationInfo",
             actions: [
               OutlinedButton(
                   onPressed: () => Get.back(), child: const Text("Cancel")),
@@ -99,6 +149,7 @@ class PageIndexController extends GetxController {
                         "address": address,
                         "status": status,
                         "distance": distance,
+                        "office": officeName,
                       }
                     });
                     Get.back();
@@ -122,7 +173,8 @@ class PageIndexController extends GetxController {
             //absen keluar
             await Get.defaultDialog(
                 title: "Validasi Presensi",
-                middleText: "Yakin untuk mengisi absen KELUAR sekarang?",
+                middleText:
+                    "Yakin untuk mengisi absen KELUAR sekarang?\n$locationInfo",
                 actions: [
                   OutlinedButton(
                       onPressed: () => Get.back(), child: const Text("Cancel")),
@@ -136,6 +188,7 @@ class PageIndexController extends GetxController {
                             "address": address,
                             "status": status,
                             "distance": distance,
+                            "office": officeName,
                           }
                         });
                         Get.back();
@@ -149,7 +202,8 @@ class PageIndexController extends GetxController {
           //absen masuk
           await Get.defaultDialog(
               title: "Validasi Presensi",
-              middleText: "Yakin untuk mengisi absen MASUK sekarang?",
+              middleText:
+                  "Yakin untuk mengisi absen MASUK sekarang?\n$locationInfo",
               actions: [
                 OutlinedButton(
                     onPressed: () => Get.back(), child: const Text("Cancel")),
@@ -164,6 +218,7 @@ class PageIndexController extends GetxController {
                           "address": address,
                           "status": status,
                           "distance": distance,
+                          "office": officeName,
                         }
                       }, SetOptions(merge: true));
                       Get.back();
@@ -176,7 +231,8 @@ class PageIndexController extends GetxController {
       }
     } else {
       Get.back();
-      Get.snackbar("Terjadi Kesalahan", "Diluar Area Pekekerjaan");
+      Get.snackbar(
+          "Terjadi Kesalahan", "Diluar Area Pekerjaan ($locationInfo)");
     }
   }
 

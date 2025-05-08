@@ -12,6 +12,7 @@ abstract class Routes {
   static const DETAIL_PRESENSI = _Paths.DETAIL_PRESENSI;
   static const ALL_PRESENSI = _Paths.ALL_PRESENSI;
   static const OVERTIME = _Paths.OVERTIME;
+  static const PROFILE = _Paths.PROFILE;
 }
 
 abstract class _Paths {
@@ -23,4 +24,5 @@ abstract class _Paths {
   static const DETAIL_PRESENSI = '/detail-presensi';
   static const ALL_PRESENSI = '/all-presensi';
   static const OVERTIME = '/overtime';
+  static const PROFILE = '/profile';
 }
