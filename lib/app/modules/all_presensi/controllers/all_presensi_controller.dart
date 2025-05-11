@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:logger/logger.dart';
 import 'package:flutter/material.dart';
+import 'package:syncfusion_flutter_datepicker/datepicker.dart';
 
 final _logger = Logger();
 
@@ -19,10 +20,20 @@ class AllPresensiController extends GetxController
   var absentCount = 0.obs;
   var isLoading = true.obs;
 
+  // Date range picker controller
+  final DateRangePickerController dateRangePickerController =
+      DateRangePickerController();
+
   // For date filtering
   DateTime? startDate;
   DateTime? endDate;
   String? filterText;
+
+  // Store all presence data
+  var allPresence = <DocumentSnapshot>[].obs;
+
+  // Computed getter to access presence list length for UI
+  int get presenceLength => allPresence.length;
 
   // For UI animation
   bool get isFilterActive => startDate != null && endDate != null;
@@ -59,6 +70,7 @@ class AllPresensiController extends GetxController
   @override
   void onClose() {
     _statsAnimationController.dispose();
+    dateRangePickerController.dispose();
     super.onClose();
   }
 
@@ -77,9 +89,8 @@ class AllPresensiController extends GetxController
       isLoading.value = true;
       update();
 
-      // Get reference to all attendance records
-      QuerySnapshot<Map<String, dynamic>> presenceData =
-          await getAllPresenceForStats();
+      // Get all attendance records and update allPresence list
+      await getAllPresenceForStats();
 
       // Reset counters
       int onTime = 0;
@@ -87,8 +98,8 @@ class AllPresensiController extends GetxController
       int absent = 0;
 
       // Count attendance by category
-      for (var doc in presenceData.docs) {
-        Map<String, dynamic> data = doc.data();
+      for (var doc in allPresence) {
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
 
         // Check if absent
         if (data["masuk"] == null) {
@@ -130,15 +141,18 @@ class AllPresensiController extends GetxController
       onTimeCount.value = 0;
       lateCount.value = 0;
       absentCount.value = 0;
+      allPresence.value = [];
 
       isLoading.value = false;
       update();
     }
   }
 
-  // Get all presence data for statistics calculation
-  Future<QuerySnapshot<Map<String, dynamic>>> getAllPresenceForStats() async {
+  // Get all presence data for statistics calculation and display
+  Future<void> getAllPresenceForStats() async {
     // Apply date filter if set
+    QuerySnapshot<Map<String, dynamic>> presenceData;
+
     if (startDate != null && endDate != null) {
       // Format dates for Firestore query
       String start = DateFormat('yyyy-MM-dd').format(startDate!);
@@ -146,64 +160,50 @@ class AllPresensiController extends GetxController
       String end = DateFormat('yyyy-MM-dd')
           .format(endDate!.add(const Duration(days: 1)));
 
-      return await firestore
-          .collection('pegawai')
-          .doc(uid)
-          .collection('presence')
-          .where('date', isGreaterThanOrEqualTo: start)
-          .where('date', isLessThan: end)
-          .get();
-    } else {
-      // Get all presence records if no date filter
-      return await firestore
-          .collection('pegawai')
-          .doc(uid)
-          .collection('presence')
-          .get();
-    }
-  }
-
-  // Get presence data for the list display with pagination
-  Stream<QuerySnapshot<Map<String, dynamic>>> getPresenceStream() {
-    // Apply date filter if set
-    if (startDate != null && endDate != null) {
-      // Format dates for Firestore query
-      String start = DateFormat('yyyy-MM-dd').format(startDate!);
-      // Add one day to end date to make it inclusive
-      String end = DateFormat('yyyy-MM-dd')
-          .format(endDate!.add(const Duration(days: 1)));
-
-      return firestore
+      presenceData = await firestore
           .collection('pegawai')
           .doc(uid)
           .collection('presence')
           .where('date', isGreaterThanOrEqualTo: start)
           .where('date', isLessThan: end)
           .orderBy('date', descending: true)
-          .snapshots();
+          .get();
     } else {
       // Get all presence records if no date filter
-      return firestore
+      presenceData = await firestore
           .collection('pegawai')
           .doc(uid)
           .collection('presence')
           .orderBy('date', descending: true)
-          .snapshots();
+          .get();
     }
+
+    // Update the observable list
+    allPresence.value = presenceData.docs;
+    return;
   }
 
-  // Method to apply date filter
-  void pickDate(DateTime start, DateTime end) {
-    startDate = start;
-    endDate = end;
+  // Filter by date range - for SfDateRangePicker
+  void filterByDateRange(DateTime? start, DateTime? end) {
+    if (start != null && end != null) {
+      startDate = start;
+      endDate = end;
 
-    // Format date range for display
-    filterText =
-        "${DateFormat.yMMMd().format(start)} - ${DateFormat.yMMMd().format(end)}";
+      // Format date range for display
+      filterText =
+          "${DateFormat.yMMMd().format(start)} - ${DateFormat.yMMMd().format(end)}";
+    } else {
+      resetFilter();
+    }
 
     // Reload attendance statistics with new date range
     loadAttendanceStatistics();
     update();
+  }
+
+  // Method to apply date filter (legacy method to maintain compatibility)
+  void pickDate(DateTime start, DateTime end) {
+    filterByDateRange(start, end);
   }
 
   // Method to reset date filter

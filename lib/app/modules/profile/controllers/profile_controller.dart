@@ -33,7 +33,7 @@ class ProfileController extends GetxController {
 
       if (doc.exists) {
         userData.value = doc.data()!;
-        logger.d('User data loaded: ${userData.value}');
+        logger.d('User data loaded: $userData');
       } else {
         logger.w('User document does not exist for uid: $uid');
       }
@@ -98,7 +98,7 @@ class ProfileController extends GetxController {
         'overtimeHours': overtimeHours.toStringAsFixed(1),
       };
 
-      logger.d('Attendance summary loaded: ${attendanceSummary.value}');
+      logger.d('Attendance summary loaded: $attendanceSummary');
     } catch (e, stackTrace) {
       logger.e('Error loading attendance summary',
           error: e, stackTrace: stackTrace);

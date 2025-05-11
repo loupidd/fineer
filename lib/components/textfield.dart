@@ -23,7 +23,7 @@ class MyTextField extends StatelessWidget {
         decoration: BoxDecoration(
             color: Color.fromARGB(255, 241, 241, 241),
             border: Border.all(color: Colors.white),
-            borderRadius: BorderRadius.circular(8)),
+            borderRadius: BorderRadius.circular(32)),
         child: Padding(
           padding: const EdgeInsets.only(left: 20),
           child: TextField(

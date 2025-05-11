@@ -1,4 +1,5 @@
 import 'package:fineer/app/controllers/page_index_controller.dart';
+import 'package:fineer/app/routes/app_pages.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
@@ -521,83 +522,124 @@ class OvertimeView extends GetView<OvertimeController> {
             ],
           )),
 
-      // Bottom Navigation Bar
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withAlpha((0.05 * 255).round()),
-              blurRadius: 10,
-              spreadRadius: 0,
-              offset: Offset(0, -2),
-            ),
-          ],
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(20),
-            topRight: Radius.circular(20),
+      // Bottom Navigation Bar (replaced with custom implementation)
+      bottomNavigationBar: _buildBottomNavBar(),
+    );
+  }
+
+  Widget _buildBottomNavBar() {
+    return Container(
+      decoration: const BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 10,
+            offset: Offset(0, -2),
           ),
-        ),
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Obx(() => BottomNavigationBar(
-                elevation: 0,
-                backgroundColor: Colors.transparent,
-                selectedItemColor: Color(0xFF2069B3),
-                unselectedItemColor: Colors.grey[400],
-                showSelectedLabels: true,
-                showUnselectedLabels: true,
-                selectedLabelStyle: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-                unselectedLabelStyle: TextStyle(
-                  fontWeight: FontWeight.normal,
-                  fontSize: 11,
-                ),
-                type: BottomNavigationBarType.fixed,
-                currentIndex: pageC.pageIndex.value,
-                onTap: (index) => pageC.changePage(index),
-                items: [
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.home_outlined),
-                    activeIcon: Icon(Icons.home_rounded),
-                    label: 'Home',
-                  ),
-                  BottomNavigationBarItem(
-                    icon: Container(
-                      padding: EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Color(0xFF3782EC),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Color(0xFF3782EC)
-                                .withAlpha((0.05 * 255).round()),
-                            blurRadius: 8,
-                            spreadRadius: 2,
-                            offset: Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Icon(
-                        Icons.fingerprint_rounded,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                    ),
-                    label: '',
-                  ),
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.access_time_outlined),
-                    activeIcon: Icon(Icons.access_time_rounded),
-                    label: 'Overtime',
-                  ),
-                ],
-              )),
+        ],
+      ),
+      child: BottomAppBar(
+        color: Colors.white,
+        elevation: 0,
+        notchMargin: 10,
+        shape: const CircularNotchedRectangle(),
+        child: Container(
+          height: 60,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildNavBarItem(
+                icon: Icons.home,
+                label: 'Home',
+                index: 0,
+                isSelected: pageC.pageIndex.value == 0,
+              ),
+              _buildNavBarItem(
+                icon: Icons.history,
+                label: 'Riwayat',
+                index: 1,
+                isSelected: pageC.pageIndex.value == 1,
+              ),
+              _buildNavBarItem(
+                icon: Icons.access_time,
+                label: 'Overtime',
+                index: 2,
+                isSelected: pageC.pageIndex.value == 2,
+              ),
+              _buildNavBarItem(
+                icon: Icons.person,
+                label: 'Profile',
+                index: 3,
+                isSelected: pageC.pageIndex.value == 3,
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  Widget _buildNavBarItem({
+    required IconData icon,
+    required String label,
+    required int index,
+    bool isSelected = false,
+  }) {
+    return InkWell(
+      onTap: () => changePage(index),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        constraints: const BoxConstraints(
+          minWidth: 60,
+          maxHeight: 50,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? Colors.blue : Colors.grey,
+              size: 20,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                color: isSelected ? Colors.blue : Colors.grey,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                height: 1.0,
+                letterSpacing: -0.2,
+              ),
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void changePage(int index) {
+    pageC.changePage(index);
+    switch (index) {
+      case 0:
+        Get.offAllNamed(Routes.HOME);
+        break;
+      case 1:
+        Get.offAllNamed(Routes.ALL_PRESENSI);
+        break;
+      case 2:
+        Get.offAllNamed(Routes.OVERTIME);
+        break;
+      case 3:
+        Get.offAllNamed(Routes.PROFILE);
+        break;
+    }
   }
 
   Widget _buildCategoryButton(String title, IconData icon, Color color,

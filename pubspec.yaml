@@ -29,6 +29,11 @@ dependencies:
   flutter_staggered_animations: ^1.1.1
   animated_toggle_switch: ^0.8.5
   flutter_svg: ^2.1.0
+  path_provider: ^2.0.15
+  excel: ^4.0.6
+  permission_handler: ^12.0.0+1
+  share_plus: ^4.5.3
+  open_file: ^3.3.0
   
 
 dev_dependencies: 
@@ -36,15 +41,16 @@ dev_dependencies:
   flutter_test: 
     sdk: flutter
   flutter_launcher_icons: ^0.14.3
-  get_cli: 1.8.1
 
 flutter: 
   uses-material-design: true
   assets:
     - lib/assets/fineer_lottie.json
     - lib/assets/logo.png
-    - 'lib/assets/tripleS-transparent-black.png'
-
+    - lib/assets/appLogo.png
+    - lib/assets/tripleS-transparent-white.png
+    - lib/assets/tripleS-transparent-black.png
+    - lib/assets/icon.webp
 flutter_icons:
   android: true
   ios: true

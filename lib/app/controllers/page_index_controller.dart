@@ -35,35 +35,45 @@ class PageIndexController extends GetxController {
   final double officeRadius = 600.0;
 
   void changePage(int i) async {
+    // Update page index first
     pageIndex.value = i;
+
+    // Handle page navigation based on index
     switch (i) {
-      //absensi
-      case 1:
-        Map<String, dynamic> dataResponse = await _determinePosition();
-        if (dataResponse["error"] != true) {
-          Position position = dataResponse["position"];
-
-          //GeoCoding - Coordinates to Address
-          List<Placemark> placemarks = await placemarkFromCoordinates(
-              position.latitude, position.longitude);
-          String address =
-              " ${placemarks[0].street},${placemarks[0].subLocality},${placemarks[0].locality}";
-          await updatePosition(position, address);
-
-          // Check distance to both office locations
-          await checkPresenceInOffice(position, address);
-        } else {
-          Get.snackbar("Terjadi Kesalahan", dataResponse["message"]);
-        }
-
+      case 1: // Attendance page
+        // Don't automatically trigger attendance - just navigate to the page
+        Get.offAllNamed(Routes
+            .HOME); // Navigate back to home or to a dedicated attendance page
         break;
-      case 2:
-        pageIndex.value = i;
+      case 2: // Overtime page
         Get.offAllNamed(Routes.OVERTIME);
         break;
-      default:
-        pageIndex.value = i;
+      default: // Home page
         Get.offAllNamed(Routes.HOME);
+    }
+  }
+
+  // New method to explicitly handle attendance check-in/check-out
+  Future<void> processAttendance() async {
+    // First get the current position
+    Map<String, dynamic> dataResponse = await _determinePosition();
+
+    if (dataResponse["error"] != true) {
+      Position position = dataResponse["position"];
+
+      // GeoCoding - Coordinates to Address
+      List<Placemark> placemarks =
+          await placemarkFromCoordinates(position.latitude, position.longitude);
+      String address =
+          " ${placemarks[0].street},${placemarks[0].subLocality},${placemarks[0].locality}";
+
+      // Update user position in database
+      await updatePosition(position, address);
+
+      // Check if user is in office and process attendance
+      await checkPresenceInOffice(position, address);
+    } else {
+      Get.snackbar("Terjadi Kesalahan", dataResponse["message"]);
     }
   }
 

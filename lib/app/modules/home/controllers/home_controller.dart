@@ -6,6 +6,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import 'dart:async';
 
 class HomeController extends GetxController {
   RxBool isLoading = false.obs;
@@ -14,7 +15,7 @@ class HomeController extends GetxController {
   final currentTime = ValueNotifier<DateTime>(DateTime.now());
 
   // Timer for updating time
-  late final timer;
+  late final StreamSubscription<DateTime> timer;
 
   FirebaseAuth auth = FirebaseAuth.instance;
   FirebaseFirestore firestore = FirebaseFirestore.instance;

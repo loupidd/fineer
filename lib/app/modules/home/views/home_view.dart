@@ -84,6 +84,8 @@ class HomeView extends GetView<HomeController> {
         const SizedBox(height: 24),
         if (user["role"] == "admin") _buildAdminSection(),
         const SizedBox(height: 16),
+        if (user["role"] == "admin") _buildAdminPanel(),
+        const SizedBox(height: 16),
         _buildPresenceHistoryHeader(),
         const SizedBox(height: 12),
         _buildPresenceHistoryList(),
@@ -486,7 +488,7 @@ class HomeView extends GetView<HomeController> {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.3),
+            color: Colors.grey.withAlpha((0.3 * 255).round()),
             spreadRadius: 1,
             blurRadius: 5,
             offset: Offset(0, 3),
@@ -523,6 +525,75 @@ class HomeView extends GetView<HomeController> {
               onPressed: () => Get.toNamed(Routes.ADD_PEGAWAI),
               icon: Icon(Icons.person_add, color: Colors.blue),
               label: Text('Add'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.blue[800],
+                elevation: 0,
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAdminPanel() {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.fromARGB(255, 20, 71, 143),
+            Color.fromARGB(255, 55, 130, 236),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withAlpha((0.3 * 255).round()),
+            spreadRadius: 1,
+            blurRadius: 5,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Monthly Report',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+              SizedBox(height: 8),
+              Text(
+                ' Get Your Monthly Report Here',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+          Flexible(
+            child: ElevatedButton.icon(
+              onPressed: () => Get.toNamed(Routes.MONTHLY_REPORT),
+              icon: Icon(Icons.document_scanner, color: Colors.blue),
+              label: Text('Get'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.blue[800],
@@ -743,7 +814,7 @@ class HomeView extends GetView<HomeController> {
         shape: const CircularNotchedRectangle(),
         child: Container(
           height: 60,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -787,24 +858,34 @@ class HomeView extends GetView<HomeController> {
     return InkWell(
       onTap: () => changePage(index),
       borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        constraints: const BoxConstraints(
+          minWidth: 60,
+          maxHeight: 50,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               icon,
               color: isSelected ? Colors.blue : Colors.grey,
-              size: 24,
+              size: 20,
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Text(
               label,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 10,
                 color: isSelected ? Colors.blue : Colors.grey,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                height: 1.0,
+                letterSpacing: -0.2,
               ),
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
             ),
           ],
         ),

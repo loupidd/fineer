@@ -11,6 +11,8 @@ import '../modules/home/bindings/home_binding.dart';
 import '../modules/home/views/home_view.dart';
 import '../modules/login/bindings/login_binding.dart';
 import '../modules/login/views/login_view.dart';
+import '../modules/monthly_report/bindings/monthly_report_binding.dart';
+import '../modules/monthly_report/views/monthly_report_view.dart';
 import '../modules/overtime/bindings/overtime_binding.dart';
 import '../modules/overtime/views/overtime_view.dart';
 import '../modules/profile/bindings/profile_binding.dart';
@@ -67,6 +69,11 @@ class AppPages {
       name: _Paths.PROFILE,
       page: () => const ProfileView(),
       binding: ProfileBinding(),
+    ),
+    GetPage(
+      name: _Paths.MONTHLY_REPORT,
+      page: () => const MonthlyReportView(),
+      binding: MonthlyReportBinding(),
     ),
   ];
 }
