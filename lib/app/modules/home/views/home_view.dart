@@ -1,11 +1,10 @@
-import 'dart:math' show sqrt, cos, sin, asin; // For distance calculation
+// Removed math import as it's no longer needed
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fineer/app/controllers/page_index_controller.dart';
 import 'package:fineer/app/routes/app_pages.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart'; // For location services
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:logger/logger.dart';
@@ -21,22 +20,7 @@ class HomeView extends GetView<HomeController> {
 
   HomeView({super.key});
 
-  // Define office locations with their coordinates
-  final List<Map<String, dynamic>> officeLocations = [
-    {
-      'name': 'Essence Darmawangsa',
-      'latitude': -6.25885702739295,
-      'longitude': 106.80418446522982,
-    },
-    {
-      'name': 'Nifarro Park',
-      'latitude': -6.2634839,
-      'longitude': 106.8441253,
-    },
-  ];
-
-  // Maximum distance allowed for check-in (in meters)
-  final double maxCheckInDistance = 15.0;
+  // Office locations are defined in PageIndexController
 
   get stackTrace => null;
 
@@ -207,8 +191,7 @@ class HomeView extends GetView<HomeController> {
           const SizedBox(height: 16),
           // Use StreamBuilder instead of direct user data to get real-time updates
           StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            stream: controller
-                .streamTodayPresence(), // Changed from streamUser to streamTodayPresence
+            stream: controller.streamTodayPresence(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
@@ -309,13 +292,12 @@ class HomeView extends GetView<HomeController> {
       decoration: BoxDecoration(
         // Modified: Use semi-transparent white for both states, just different opacity
         color: isCompleted
-            ? Colors.blue.withAlpha(200) // Reduced opacity for completed state
-            : Colors.blue.withAlpha(50), // Lower opacity for pending state
+            ? Colors.blue.withAlpha(200)
+            : Colors.blue.withAlpha(50),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: isCompleted
-              ? Colors.blue
-                  .withAlpha((0.6 * 255).round()) // Increased border opacity
+              ? Colors.blue.withAlpha((0.6 * 255).round())
               : Colors.blue.withAlpha((0.2 * 255).round()),
           width: 1,
         ),
@@ -328,7 +310,6 @@ class HomeView extends GetView<HomeController> {
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w500,
-              // Modified: Always keep text color white with good contrast
               color: Colors.white.withAlpha((0.9 * 255).round()),
             ),
           ),
@@ -338,7 +319,6 @@ class HomeView extends GetView<HomeController> {
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              // Modified: Always keep text color white with high contrast
               color: Colors.white,
             ),
           ),
@@ -951,8 +931,25 @@ class HomeView extends GetView<HomeController> {
             ),
             InkWell(
               onTap: () {
-                auth.signOut();
-                Get.offAllNamed(Routes.LOGIN);
+                Get.defaultDialog(
+                  title: 'Sign Out',
+                  middleText: 'Are you sure you want to log out?',
+                  actions: [
+                    TextButton(
+                      onPressed: () => {
+                        auth.signOut(),
+                        Get.offAllNamed(Routes.LOGIN),
+                      },
+                      child: const Text('Yes'),
+                    ),
+                    TextButton(
+                      onPressed: () => {
+                        Get.back(),
+                      },
+                      child: const Text('No'),
+                    ),
+                  ],
+                );
               },
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
@@ -989,253 +986,10 @@ class HomeView extends GetView<HomeController> {
     }
   }
 
-  // Calculate distance between two coordinates using the Haversine formula
-  double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    const double earthRadius = 6371000; // Earth's radius in meters
-
-    // Convert degrees to radians
-    double dLat = _toRadians(lat2 - lat1);
-    double dLon = _toRadians(lon2 - lon1);
-
-    // Haversine formula
-    double a = sin(dLat / 2) * sin(dLat / 2) +
-        cos(_toRadians(lat1)) *
-            cos(_toRadians(lat2)) *
-            sin(dLon / 2) *
-            sin(dLon / 2);
-
-    double c = 2 * asin(sqrt(a));
-    return earthRadius * c; // Distance in meters
-  }
-
-  double _toRadians(double degree) {
-    return degree * (3.141592653589793 / 180);
-  }
-
-  // Check if user is within any office location
-  Future<Map<String, dynamic>> checkPresenceInOffice() async {
-    try {
-      // Request permission and get current position
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          return {
-            'isInOffice': false,
-            'message': 'Location permission denied',
-            'office': null,
-            'distance': double.infinity,
-          };
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        return {
-          'isInOffice': false,
-          'message': 'Location permission permanently denied',
-          'office': null,
-          'distance': double.infinity,
-        };
-      }
-
-      // Using LocationSettings instead of deprecated desiredAccuracy
-      Position position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
-
-      // Find the closest office
-      String? closestOffice;
-      double shortestDistance = double.infinity;
-
-      for (var office in officeLocations) {
-        double distance = calculateDistance(
-          position.latitude,
-          position.longitude,
-          office['latitude'],
-          office['longitude'],
-        );
-
-        if (distance < shortestDistance) {
-          shortestDistance = distance;
-          closestOffice = office['name'];
-        }
-      }
-
-      // Check if within allowed distance
-      if (shortestDistance <= maxCheckInDistance) {
-        return {
-          'isInOffice': true,
-          'message': 'You are at $closestOffice',
-          'office': closestOffice,
-          'distance': shortestDistance,
-        };
-      } else {
-        return {
-          'isInOffice': false,
-          'message': 'You are not at any office location',
-          'office': closestOffice,
-          'distance': shortestDistance,
-        };
-      }
-    } catch (e) {
-      return {
-        'isInOffice': false,
-        'message': 'Error checking location: $e',
-        'office': null,
-        'distance': double.infinity,
-      };
-    }
-  }
-
-  // Modified attendance method to handle office location
   void presensi(String type) async {
-    Map<String, dynamic> presenceResult = await checkPresenceInOffice();
-
-    if (!presenceResult['isInOffice']) {
-      // Show error dialog if not in office
-      Get.defaultDialog(
-        title: 'Location Error',
-        middleText: 'You need to be at an office location to check in.\n'
-            '${presenceResult['message']}\n'
-            'Distance: ${presenceResult['distance'] < double.infinity ? '${presenceResult['distance'].toStringAsFixed(2)} meters' : 'unknown'} '
-            'from ${presenceResult['office'] ?? 'any office'}.',
-        actions: [
-          TextButton(
-            onPressed: () => Get.back(),
-            child: const Text('OK'),
-          ),
-        ],
-      );
-      return;
-    }
-
     try {
-      String uid = auth.currentUser!.uid;
-      DateTime now = DateTime.now();
-      String todayDoc = DateFormat.yMd().format(now).replaceAll('/', '-');
-
-      // Check if user has already checked in/out
-      DocumentSnapshot<Map<String, dynamic>> todayPresence =
-          await controller.getTodayPresenceOnce();
-
-      // Check if trying to check in twice
-      if (type == 'masuk' &&
-          todayPresence.exists &&
-          todayPresence.data()?['masuk'] != null) {
-        Get.snackbar(
-          'Error',
-          'You have already checked in today',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-        );
-        return;
-      }
-
-      // Check if trying to check out without checking in
-      if (type == 'keluar' &&
-          (!todayPresence.exists || todayPresence.data()?['masuk'] == null)) {
-        Get.snackbar(
-          'Error',
-          'You need to check in first',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-        );
-        return;
-      }
-
-      // Check if trying to check out twice
-      if (type == 'keluar' &&
-          todayPresence.exists &&
-          todayPresence.data()?['keluar'] != null) {
-        Get.snackbar(
-          'Error',
-          'You have already checked out today',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red,
-          colorText: Colors.white,
-        );
-        return;
-      }
-
-      // Using LocationSettings instead of deprecated desiredAccuracy
-      Position position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
-
-      // Create or update the presences collection
-      CollectionReference<Map<String, dynamic>> presenceRef = FirebaseFirestore
-          .instance
-          .collection('pegawai')
-          .doc(uid)
-          .collection('presence');
-
-      // Prepare data for Firestore
-      Map<String, dynamic> presenceData = {
-        'date': now.toIso8601String(),
-        'type': type,
-        'office': presenceResult['office'],
-        'coordinates': {
-          'latitude': position.latitude,
-          'longitude': position.longitude,
-        },
-        'address':
-            'Office Location', // You could use a geocoding service to get the actual address
-        'status': 'success',
-        'distance': presenceResult['distance'],
-      };
-
-      if (type == 'masuk') {
-        // Handle check-in
-        if (!todayPresence.exists) {
-          await presenceRef.doc(todayDoc).set({
-            'date': now.toIso8601String(),
-            'masuk': presenceData,
-            'office': presenceResult['office'],
-          });
-        } else {
-          await presenceRef.doc(todayDoc).update({
-            'masuk': presenceData,
-            'office': presenceResult['office'],
-          });
-        }
-
-        // Update user document - Note: we're using pegawai collection now
-        await FirebaseFirestore.instance.collection('pegawai').doc(uid).update({
-          'today': {
-            'date': now.toIso8601String(),
-            'masuk': presenceData,
-            'office': presenceResult['office'],
-          }
-        });
-      } else if (type == 'keluar') {
-        // Handle check-out
-        await presenceRef.doc(todayDoc).update({
-          'keluar': presenceData,
-        });
-
-        // Update user document with keluar data
-        await FirebaseFirestore.instance.collection('pegawai').doc(uid).update({
-          'today.keluar': presenceData,
-        });
-      }
-
-      // Show success message
-      Get.snackbar(
-        'Success',
-        type == 'masuk'
-            ? 'You have successfully checked in at ${presenceResult['office']}'
-            : 'You have successfully checked out from ${presenceResult['office']}',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.green,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-      );
+      // Use PageIndexController to handle attendance with proper location checks
+      await pageC.processAttendance();
     } catch (e) {
       // Handle errors
       Get.snackbar(
@@ -1245,7 +999,7 @@ class HomeView extends GetView<HomeController> {
         backgroundColor: Colors.red,
         colorText: Colors.white,
       );
-      _logger.e('Error During', error: e, stackTrace: stackTrace);
+      _logger.e('Error During Attendance', error: e, stackTrace: stackTrace);
     }
   }
 }

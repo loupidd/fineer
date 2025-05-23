@@ -10,7 +10,7 @@ class DetailPresensiController extends GetxController {
   void onInit() {
     super.onInit();
     final args = Get.arguments;
-    
+
     if (args != null) {
       // Check the type of the arguments
       if (args is String) {
@@ -37,15 +37,19 @@ class DetailPresensiController extends GetxController {
     try {
       // Check both collection names to ensure we find the data
       DocumentSnapshot<Map<String, dynamic>> doc;
-      
+
       // First try 'presence' collection
-      doc = await FirebaseFirestore.instance.collection('presence').doc(id).get();
-      
+      doc =
+          await FirebaseFirestore.instance.collection('presence').doc(id).get();
+
       // If not found, try 'presensi' collection
       if (!doc.exists) {
-        doc = await FirebaseFirestore.instance.collection('presensi').doc(id).get();
+        doc = await FirebaseFirestore.instance
+            .collection('presensi')
+            .doc(id)
+            .get();
       }
-      
+
       if (doc.exists && doc.data() != null) {
         presenceData.value = doc.data();
       } else {
@@ -53,7 +57,6 @@ class DetailPresensiController extends GetxController {
         Get.snackbar('Error', 'Presence data not found');
       }
     } catch (e) {
-      print('Error fetching presence data: $e');
       errorMessage.value = 'Failed to load presence data: $e';
       Get.snackbar('Error', 'Failed to load presence data');
     } finally {

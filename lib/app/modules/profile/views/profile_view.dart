@@ -1,12 +1,15 @@
+import 'package:fineer/app/modules/home/views/home_view.dart';
 import 'package:fineer/app/routes/app_pages.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import 'package:fineer/app/controllers/page_index_controller.dart';
 
 import '../controllers/profile_controller.dart';
 
 class ProfileView extends GetView<ProfileController> {
-  const ProfileView({super.key});
+  ProfileView({super.key});
+  final pageC = Get.find<PageIndexController>();
 
   @override
   Widget build(BuildContext context) {
@@ -44,6 +47,7 @@ class ProfileView extends GetView<ProfileController> {
                 ],
               ),
             )),
+      bottomNavigationBar: _buildBottomNavBar(),
     );
   }
 
@@ -184,19 +188,17 @@ class ProfileView extends GetView<ProfileController> {
             ),
             const SizedBox(height: 16),
             _buildInfoItem(
-                'Employee ID',
-                user['employeeId']?.toString() ??
-                    'EMP-${user['uid']?.toString().substring(0, 6) ?? 'N/A'}'),
-            _buildInfoItem('Department',
-                user['department']?.toString() ?? 'IT Department'),
-            _buildInfoItem('Position', user['position']?.toString() ?? 'Staff'),
+                'NIK',
+                user['NIK']?.toString() ??
+                    'EMP-${user['NIK']?.toString().substring(0, 6) ?? 'N/A'}'),
+            _buildInfoItem('Department', user['job']?.toString() ?? ''),
+            _buildInfoItem('Position', user['site']?.toString() ?? ''),
             _buildInfoItem(
                 'Join Date',
-                user['joinDate'] != null
-                    ? controller.formatJoinDate(user['joinDate'])
+                user['createdAt'] != null
+                    ? controller.formatJoinDate(user['createdAt'])
                     : DateFormat('dd/MM/yyyy').format(
                         DateTime.now().subtract(const Duration(days: 90)))),
-            _buildInfoItem('Status', user['status']?.toString() ?? 'Permanent'),
           ],
         ),
       );
@@ -398,23 +400,32 @@ class ProfileView extends GetView<ProfileController> {
                 },
               )),
           const Divider(),
-          Obx(() => _buildDropdownSettingsItem(
-                icon: Icons.language,
-                title: 'Language',
-                value: controller.appLanguage.value,
-                items: const ['English', 'Indonesian', 'Spanish', 'French'],
-                onChanged: (value) {
-                  if (value != null) {
-                    controller.updateLanguagePreference(value);
-                  }
-                },
-              )),
           const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,
             height: 48,
             child: ElevatedButton(
-              onPressed: () => controller.signOut(),
+              onPressed: () {
+                Get.defaultDialog(
+                  title: 'Sign Out',
+                  middleText: 'Are you sure you want to log out?',
+                  actions: [
+                    TextButton(
+                      onPressed: () => {
+                        auth.signOut(),
+                        Get.offAllNamed(Routes.LOGIN),
+                      },
+                      child: const Text('Yes'),
+                    ),
+                    TextButton(
+                      onPressed: () => {
+                        Get.back(),
+                      },
+                      child: const Text('No'),
+                    ),
+                  ],
+                );
+              },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red.shade50,
                 elevation: 0,
@@ -483,67 +494,6 @@ class ProfileView extends GetView<ProfileController> {
     );
   }
 
-  Widget _buildDropdownSettingsItem({
-    required IconData icon,
-    required String title,
-    required String value,
-    required List<String> items,
-    required Function(String?) onChanged,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            color: Colors.blue,
-            size: 20,
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Text(
-              title,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-          SizedBox(
-            width: 120,
-            child: DropdownButtonFormField<String>(
-              value: value,
-              icon: const Icon(Icons.arrow_drop_down),
-              decoration: const InputDecoration(
-                isDense: true,
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(8)),
-                  borderSide: BorderSide(color: Colors.grey),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(8)),
-                  borderSide: BorderSide(color: Colors.grey),
-                ),
-              ),
-              onChanged: onChanged,
-              items: items.map<DropdownMenuItem<String>>((String value) {
-                return DropdownMenuItem<String>(
-                  value: value,
-                  child: Text(
-                    value,
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildAppInfoSection() {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -591,6 +541,123 @@ class ProfileView extends GetView<ProfileController> {
               DateFormat('dd MMM yyyy, HH:mm').format(DateTime.now())),
           const SizedBox(height: 16),
         ],
+      ),
+    );
+  }
+
+// Inside ProfileView class
+
+  void _changePage(int index) {
+    pageC.changePage(index);
+    switch (index) {
+      case 0:
+        Get.offAllNamed(Routes.HOME);
+        break;
+      case 1:
+        Get.offAllNamed(Routes.ALL_PRESENSI);
+        break;
+      case 2:
+        Get.offAllNamed(Routes.OVERTIME);
+        break;
+      case 3:
+        Get.offAllNamed(Routes.PROFILE);
+        break;
+    }
+  }
+
+  Widget _buildBottomNavBar() {
+    return Container(
+      decoration: const BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 10,
+            offset: Offset(0, -2),
+          ),
+        ],
+      ),
+      child: BottomAppBar(
+        color: Colors.white,
+        elevation: 0,
+        notchMargin: 10,
+        shape: const CircularNotchedRectangle(),
+        child: Container(
+          height: 60,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildNavBarItem(
+                icon: Icons.home,
+                label: 'Home',
+                index: 0,
+                isSelected: pageC.pageIndex.value == 0,
+              ),
+              _buildNavBarItem(
+                icon: Icons.history,
+                label: 'Riwayat',
+                index: 1,
+                isSelected: pageC.pageIndex.value == 1,
+              ),
+              _buildNavBarItem(
+                icon: Icons.access_time,
+                label: 'Overtime',
+                index: 2,
+                isSelected: pageC.pageIndex.value == 2,
+              ),
+              _buildNavBarItem(
+                icon: Icons.person,
+                label: 'Profile',
+                index: 3,
+                isSelected: pageC.pageIndex.value == 3,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNavBarItem({
+    required IconData icon,
+    required String label,
+    required int index,
+    bool isSelected = false,
+  }) {
+    return InkWell(
+      onTap: () => _changePage(index),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        constraints: const BoxConstraints(
+          minWidth: 60,
+          maxHeight: 50,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? Colors.blue : Colors.grey,
+              size: 20,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                color: isSelected ? Colors.blue : Colors.grey,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                height: 1.0,
+                letterSpacing: -0.2,
+              ),
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -4,11 +4,10 @@ import '../controllers/detail_presensi_controller.dart';
 import 'package:intl/intl.dart';
 
 class DetailPresensiView extends GetView<DetailPresensiController> {
-  const DetailPresensiView({Key? key}) : super(key: key);
+  const DetailPresensiView({super.key});
 
   @override
   Widget build(BuildContext context) {
-
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -31,7 +30,7 @@ class DetailPresensiView extends GetView<DetailPresensiController> {
         if (controller.isLoading.value) {
           return const Center(child: CircularProgressIndicator());
         }
-        
+
         // Show error message if available
         if (controller.errorMessage.value != null) {
           return Center(
@@ -67,18 +66,25 @@ class DetailPresensiView extends GetView<DetailPresensiController> {
             ),
           );
         }
-        
+
         if (controller.presenceData.value == null) {
           return const Center(child: Text('Data tidak ditemukan'));
         }
 
         final data = controller.presenceData.value!;
-        
+
         // Make sure required fields exist
         if (data["date"] == null) {
           return const Center(
             child: Text('Data tanggal tidak ditemukan'),
           );
+        }
+
+        // Helper function to get date string from either "date" or "datetime" field
+        String? getDateString(Map<String, dynamic>? dataMap) {
+          if (dataMap == null) return null;
+          // Try to get the date from either "date" or "datetime" field
+          return dataMap["date"] as String? ?? dataMap["datetime"] as String?;
         }
 
         // Safely parse the date
@@ -87,7 +93,6 @@ class DetailPresensiView extends GetView<DetailPresensiController> {
           try {
             return DateTime.parse(dateStr);
           } catch (e) {
-            print('Error parsing date: $e');
             return null;
           }
         }
@@ -99,15 +104,18 @@ class DetailPresensiView extends GetView<DetailPresensiController> {
             child: Text('Format tanggal tidak valid'),
           );
         }
-        
+
         // Calculate duration if both check-in and check-out exist
         String calculateDuration() {
-          if (data["masuk"] != null &&
-              data["keluar"] != null &&
-              data["keluar"]?["date"] != null) {
-            final DateTime? masuk = parseDate(data["masuk"]!["date"] as String?);
-            final DateTime? keluar = parseDate(data["keluar"]!["date"] as String?);
-            
+          if (data["masuk"] != null && data["keluar"] != null) {
+            final String? masukDateStr =
+                getDateString(data["masuk"] as Map<String, dynamic>?);
+            final String? keluarDateStr =
+                getDateString(data["keluar"] as Map<String, dynamic>?);
+
+            final DateTime? masuk = parseDate(masukDateStr);
+            final DateTime? keluar = parseDate(keluarDateStr);
+
             if (masuk != null && keluar != null) {
               final Duration duration = keluar.difference(masuk);
               final int hours = duration.inHours;
@@ -120,17 +128,20 @@ class DetailPresensiView extends GetView<DetailPresensiController> {
 
         // Calculate late duration if check-in is after 8:15 AM
         String calculateLateDuration() {
-          if (data["masuk"] != null && data["masuk"]?["date"] != null) {
-            final DateTime? masuk = parseDate(data["masuk"]!["date"] as String?);
+          if (data["masuk"] != null) {
+            final String? masukDateStr =
+                getDateString(data["masuk"] as Map<String, dynamic>?);
+            final DateTime? masuk = parseDate(masukDateStr);
+
             if (masuk != null) {
               final DateTime expectedTime =
                   DateTime(masuk.year, masuk.month, masuk.day, 8, 15);
-              
+
               if (masuk.isAfter(expectedTime)) {
                 final Duration lateDuration = masuk.difference(expectedTime);
                 final int hours = lateDuration.inHours;
                 final int minutes = lateDuration.inMinutes % 60;
-                
+
                 if (hours > 0) {
                   return '$hours jam $minutes menit';
                 } else {
@@ -143,7 +154,7 @@ class DetailPresensiView extends GetView<DetailPresensiController> {
         }
 
         final bool isLate = calculateLateDuration().isNotEmpty;
-        
+
         return SingleChildScrollView(
           child: Padding(
             padding: const EdgeInsets.all(20),
@@ -238,10 +249,21 @@ class DetailPresensiView extends GetView<DetailPresensiController> {
                                 Column(
                                   children: [
                                     Text(
-                                      data["masuk"]?["date"] == null
-                                        ? "--:--"
-                                        : DateFormat.Hm().format(
-                                            parseDate(data["masuk"]!["date"] as String?) ?? DateTime.now()),
+                                      () {
+                                        final masukData = data["masuk"]
+                                            as Map<String, dynamic>?;
+                                        if (masukData == null) return "--:--";
+
+                                        final dateStr =
+                                            getDateString(masukData);
+                                        if (dateStr == null) return "--:--";
+
+                                        final parsedDate = parseDate(dateStr);
+                                        if (parsedDate == null) return "--:--";
+
+                                        return DateFormat.Hm()
+                                            .format(parsedDate);
+                                      }(),
                                       style: const TextStyle(
                                         fontWeight: FontWeight.bold,
                                         fontSize: 16,
@@ -254,7 +276,8 @@ class DetailPresensiView extends GetView<DetailPresensiController> {
                                             horizontal: 6, vertical: 2),
                                         decoration: BoxDecoration(
                                           color: Colors.red.withAlpha(30),
-                                          borderRadius: BorderRadius.circular(4),
+                                          borderRadius:
+                                              BorderRadius.circular(4),
                                         ),
                                         child: Text(
                                           'Terlambat ${calculateLateDuration()}',
@@ -297,10 +320,19 @@ class DetailPresensiView extends GetView<DetailPresensiController> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  data["keluar"]?["date"] == null
-                                      ? "-"
-                                      : DateFormat.Hm().format(
-                                          parseDate(data["keluar"]!["date"] as String?) ?? DateTime.now()),
+                                  () {
+                                    final keluarData =
+                                        data["keluar"] as Map<String, dynamic>?;
+                                    if (keluarData == null) return "-";
+
+                                    final dateStr = getDateString(keluarData);
+                                    if (dateStr == null) return "-";
+
+                                    final parsedDate = parseDate(dateStr);
+                                    if (parsedDate == null) return "-";
+
+                                    return DateFormat.Hm().format(parsedDate);
+                                  }(),
                                   style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 16,
@@ -402,17 +434,25 @@ class DetailPresensiView extends GetView<DetailPresensiController> {
                     DetailItem(
                       icon: Icons.access_time_rounded,
                       label: 'Waktu',
-                      value: data["masuk"]?["date"] == null
-                          ? "-"
-                          : DateFormat.jms().format(
-                              parseDate(data["masuk"]!["date"] as String?) ?? DateTime.now()),
+                      value: () {
+                        final masukData =
+                            data["masuk"] as Map<String, dynamic>?;
+                        if (masukData == null) return "-";
+
+                        final dateStr = getDateString(masukData);
+                        if (dateStr == null) return "-";
+
+                        final parsedDate = parseDate(dateStr);
+                        if (parsedDate == null) return "-";
+
+                        return DateFormat.jms().format(parsedDate);
+                      }(),
                     ),
                     DetailItem(
                       icon: Icons.location_on_outlined,
                       label: 'Posisi',
-                      value: data["masuk"]?["lat"] != null && data["masuk"]?["long"] != null
-                          ? '${data["masuk"]!["lat"]}, ${data["masuk"]!["long"]}'
-                          : '-',
+                      value:
+                          '${data["masuk"]?["lat"]?.toString() ?? '-'}, ${data["masuk"]?["long"]?.toString() ?? '-'}',
                     ),
                     DetailItem(
                       icon: Icons.check_circle_outline,
@@ -438,17 +478,25 @@ class DetailPresensiView extends GetView<DetailPresensiController> {
                     DetailItem(
                       icon: Icons.access_time_rounded,
                       label: 'Waktu',
-                      value: data["keluar"]?["date"] == null
-                          ? "-"
-                          : DateFormat.jms().format(
-                              parseDate(data["keluar"]!["date"] as String?) ?? DateTime.now()),
+                      value: () {
+                        final keluarData =
+                            data["keluar"] as Map<String, dynamic>?;
+                        if (keluarData == null) return "-";
+
+                        final dateStr = getDateString(keluarData);
+                        if (dateStr == null) return "-";
+
+                        final parsedDate = parseDate(dateStr);
+                        if (parsedDate == null) return "-";
+
+                        return DateFormat.jms().format(parsedDate);
+                      }(),
                     ),
                     DetailItem(
                       icon: Icons.location_on_outlined,
                       label: 'Posisi',
-                      value: data["keluar"]?["lat"] != null && data["keluar"]?["long"] != null
-                          ? '${data["keluar"]!["lat"]}, ${data["keluar"]!["long"]}'
-                          : '-',
+                      value:
+                          '${data["keluar"]?["lat"]?.toString() ?? '-'}, ${data["keluar"]?["long"]?.toString() ?? '-'}',
                     ),
                     DetailItem(
                       icon: Icons.check_circle_outline,

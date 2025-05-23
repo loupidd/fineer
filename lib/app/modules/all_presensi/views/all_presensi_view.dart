@@ -139,6 +139,15 @@ class AllPresensiView extends GetView<AllPresensiController> {
               );
             },
           ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 4, left: 16, top: 24),
+              child: Text("Riwayat Kehadiran",
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+          ),
+
           // List of attendance entries
           Expanded(
             child: Obx(
@@ -165,219 +174,332 @@ class AllPresensiView extends GetView<AllPresensiController> {
                             ],
                           ),
                         )
-                      : AnimationLimiter(
-                          child: ListView.builder(
-                            padding: const EdgeInsets.symmetric(
-                              vertical: 16,
-                              horizontal: 16,
-                            ),
-                            itemCount: controller.presenceLength,
-                            itemBuilder: (context, index) {
-                              DocumentSnapshot doc =
-                                  controller.allPresence[index];
-                              Map<String, dynamic> data =
-                                  doc.data() as Map<String, dynamic>;
+                      : ListView.builder(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 8,
+                            horizontal: 16,
+                          ),
+                          itemCount: controller.presenceLength,
+                          itemBuilder: (context, index) {
+                            DocumentSnapshot doc =
+                                controller.allPresence[index];
+                            Map<String, dynamic> data =
+                                doc.data() as Map<String, dynamic>;
 
-                              // Format date
-                              DateTime date = DateTime.parse(data['date']);
-                              String formattedDate =
-                                  DateFormat.yMMMMd('id_ID').format(date);
+                            // Helper function to get date string from either field
+                            String? getDateString(Map<String, dynamic>? dataMap,
+                                String fieldName) {
+                              if (dataMap == null) {
+                                return null;
+                              }
+                              String? result = dataMap[fieldName] as String? ??
+                                  dataMap["${fieldName}time"] as String?;
+                              return result;
+                            }
 
-                              // Check attendance status
-                              String status =
-                                  data['status'] ?? 'Tidak Ada Status';
-                              bool isOnTime = status == 'Tepat Waktu';
-                              bool isLate = status == 'Terlambat';
+                            // Safely parse date
+                            DateTime? parseDate(String? dateStr) {
+                              if (dateStr == null) return null;
+                              try {
+                                return DateTime.parse(dateStr);
+                              } catch (e) {
+                                return null;
+                              }
+                            }
 
-                              // Get check-in time
-                              String checkInTime = data['masuk']?['datetime'] !=
-                                      null
-                                  ? DateFormat.Hm().format(
-                                      DateTime.parse(data['masuk']['datetime']),
-                                    )
-                                  : '--:--';
+                            // Parse main date
+                            DateTime? date;
+                            String? dateStr = getDateString(data, 'date');
+                            if (dateStr != null) {
+                              date = parseDate(dateStr);
+                            }
 
-                              // Get check-out time
-                              String checkOutTime =
-                                  data['keluar']?['datetime'] != null
-                                      ? DateFormat.Hm().format(
-                                          DateTime.parse(
-                                              data['keluar']['datetime']),
-                                        )
-                                      : '--:--';
+                            // Format day of month, day name, and full date
+                            String dayOfMonth = date != null
+                                ? DateFormat('d').format(date)
+                                : "--";
+                            String dayName = date != null
+                                ? DateFormat('EEEE').format(date)
+                                : "Unknown";
+                            String fullDate = date != null
+                                ? DateFormat('MMMM d, yyyy').format(date)
+                                : "--";
 
-                              return AnimationConfiguration.staggeredList(
-                                position: index,
-                                duration: const Duration(milliseconds: 500),
-                                child: SlideAnimation(
-                                  verticalOffset: 50.0,
-                                  child: FadeInAnimation(
-                                    child: Card(
-                                      elevation: 2,
-                                      shadowColor: Colors.black12,
-                                      margin: const EdgeInsets.only(bottom: 16),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(16),
-                                      ),
-                                      child: InkWell(
-                                        borderRadius: BorderRadius.circular(16),
-                                        onTap: () {
-                                          Get.toNamed(
-                                            Routes.DETAIL_PRESENSI,
-                                            arguments: doc.id,
-                                          );
-                                        },
-                                        child: Padding(
-                                          padding: const EdgeInsets.all(16),
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Row(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment
-                                                        .spaceBetween,
-                                                children: [
-                                                  Text(
-                                                    formattedDate,
-                                                    style: const TextStyle(
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                      fontSize: 16,
-                                                    ),
-                                                  ),
-                                                  Container(
-                                                    padding: const EdgeInsets
-                                                        .symmetric(
-                                                      horizontal: 12,
-                                                      vertical: 6,
-                                                    ),
-                                                    decoration: BoxDecoration(
-                                                      color: isOnTime
-                                                          ? Colors.green.shade50
-                                                          : isLate
-                                                              ? Colors.orange
-                                                                  .shade50
-                                                              : Colors
-                                                                  .red.shade50,
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                              20),
-                                                    ),
-                                                    child: Text(
-                                                      status,
-                                                      style: TextStyle(
-                                                        color: isOnTime
-                                                            ? Colors.green
-                                                            : isLate
-                                                                ? Colors.orange
-                                                                : Colors.red,
-                                                        fontSize: 12,
-                                                        fontWeight:
-                                                            FontWeight.w500,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 16),
-                                              Row(
-                                                children: [
-                                                  Expanded(
-                                                    child: Column(
-                                                      crossAxisAlignment:
-                                                          CrossAxisAlignment
-                                                              .start,
-                                                      children: [
-                                                        Text(
-                                                          'Masuk',
-                                                          style: TextStyle(
-                                                            color: Colors
-                                                                .grey[600],
-                                                            fontSize: 12,
-                                                          ),
-                                                        ),
-                                                        const SizedBox(
-                                                            height: 4),
-                                                        Row(
-                                                          children: [
-                                                            Icon(
-                                                              Icons.login,
-                                                              size: 18,
-                                                              color: Colors
-                                                                  .blue[600],
-                                                            ),
-                                                            const SizedBox(
-                                                                width: 8),
-                                                            Text(
-                                                              checkInTime,
-                                                              style: TextStyle(
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .w500,
-                                                                color: Colors
-                                                                    .blue[600],
-                                                              ),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                  Expanded(
-                                                    child: Column(
-                                                      crossAxisAlignment:
-                                                          CrossAxisAlignment
-                                                              .start,
-                                                      children: [
-                                                        Text(
-                                                          'Keluar',
-                                                          style: TextStyle(
-                                                            color: Colors
-                                                                .grey[600],
-                                                            fontSize: 12,
-                                                          ),
-                                                        ),
-                                                        const SizedBox(
-                                                            height: 4),
-                                                        Row(
-                                                          children: [
-                                                            Icon(
-                                                              Icons.logout,
-                                                              size: 18,
-                                                              color: Colors
-                                                                  .orange[600],
-                                                            ),
-                                                            const SizedBox(
-                                                                width: 8),
-                                                            Text(
-                                                              checkOutTime,
-                                                              style: TextStyle(
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .w500,
-                                                                color: Colors
-                                                                        .orange[
-                                                                    600],
-                                                              ),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ],
-                                          ),
+                            // Get status color
+                            Color statusColor = Colors.red;
+
+                            if (data['masuk'] != null) {
+                              try {
+                                statusColor = controller.getStatusColor(data);
+                              } catch (e) {
+                                statusColor = Colors.red;
+                              }
+                            }
+
+                            // Get check-in time
+                            String checkInTime = '--:--';
+                            if (data['masuk'] != null) {
+                              Map<String, dynamic>? masukData;
+                              try {
+                                masukData =
+                                    data['masuk'] as Map<String, dynamic>?;
+                                if (masukData != null) {
+                                  String? masukDateStr =
+                                      getDateString(masukData, 'date');
+                                  DateTime? masukDate = parseDate(masukDateStr);
+                                  if (masukDate != null) {
+                                    checkInTime =
+                                        DateFormat.Hm().format(masukDate);
+                                  }
+                                }
+                              } catch (e) {
+                                Get.log('Error parsing check-in data: $e');
+                              }
+                            }
+
+                            // Get check-out time
+                            String checkOutTime = '--:--';
+                            if (data['keluar'] != null) {
+                              Map<String, dynamic>? keluarData;
+                              try {
+                                keluarData =
+                                    data['keluar'] as Map<String, dynamic>?;
+                                if (keluarData != null) {
+                                  String? keluarDateStr =
+                                      getDateString(keluarData, 'date');
+                                  DateTime? keluarDate =
+                                      parseDate(keluarDateStr);
+                                  if (keluarDate != null) {
+                                    checkOutTime =
+                                        DateFormat.Hm().format(keluarDate);
+                                  }
+                                }
+                              } catch (e) {
+                                Get.log('Error parsing check-out data: $e');
+                              }
+                            }
+
+                            return AnimationConfiguration.staggeredList(
+                              position: index,
+                              duration: const Duration(milliseconds: 500),
+                              child: SlideAnimation(
+                                verticalOffset: 50.0,
+                                child: FadeInAnimation(
+                                  child: Container(
+                                    margin: const EdgeInsets.only(bottom: 16),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withAlpha(13),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 2),
                                         ),
+                                      ],
+                                    ),
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(16),
+                                      onTap: () {
+                                        Map<String, dynamic> normalizedData =
+                                            _prepareDataForDetailView(
+                                                data, doc.id);
+                                        Get.toNamed(
+                                          Routes.DETAIL_PRESENSI,
+                                          arguments: normalizedData,
+                                        );
+                                      },
+                                      child: Row(
+                                        children: [
+                                          // Date circle
+                                          Container(
+                                            width: 80,
+                                            padding: const EdgeInsets.all(16),
+                                            child: Container(
+                                              padding: const EdgeInsets.all(8),
+                                              decoration: BoxDecoration(
+                                                color:
+                                                    Colors.blue.withAlpha(26),
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: Center(
+                                                child: Text(
+                                                  dayOfMonth,
+                                                  style: const TextStyle(
+                                                    fontSize: 24,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.blue,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          // Content area
+                                          Expanded(
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      vertical: 16),
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .spaceBetween,
+                                                    children: [
+                                                      Column(
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .start,
+                                                        children: [
+                                                          Text(
+                                                            dayName,
+                                                            style: TextStyle(
+                                                              fontSize: 16,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .bold,
+                                                              color: Colors
+                                                                  .black87,
+                                                            ),
+                                                          ),
+                                                          const SizedBox(
+                                                              height: 4),
+                                                          Text(
+                                                            fullDate,
+                                                            style: TextStyle(
+                                                              fontSize: 14,
+                                                              color: Colors
+                                                                  .grey[600],
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                      Padding(
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .only(
+                                                                right: 16),
+                                                        child: Container(
+                                                          width: 12,
+                                                          height: 12,
+                                                          decoration:
+                                                              BoxDecoration(
+                                                            color: statusColor,
+                                                            shape:
+                                                                BoxShape.circle,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  const SizedBox(height: 16),
+                                                  Row(
+                                                    children: [
+                                                      Expanded(
+                                                        child: Column(
+                                                          crossAxisAlignment:
+                                                              CrossAxisAlignment
+                                                                  .start,
+                                                          children: [
+                                                            Text(
+                                                              'Masuk',
+                                                              style: TextStyle(
+                                                                fontSize: 12,
+                                                                color: Colors
+                                                                    .grey[600],
+                                                              ),
+                                                            ),
+                                                            const SizedBox(
+                                                                height: 4),
+                                                            Row(
+                                                              children: [
+                                                                Icon(
+                                                                  Icons.login,
+                                                                  size: 16,
+                                                                  color: Colors
+                                                                      .blue,
+                                                                ),
+                                                                const SizedBox(
+                                                                    width: 4),
+                                                                Text(
+                                                                  checkInTime,
+                                                                  style:
+                                                                      TextStyle(
+                                                                    fontSize:
+                                                                        16,
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .bold,
+                                                                    color: Colors
+                                                                        .black87,
+                                                                  ),
+                                                                ),
+                                                              ],
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                      Expanded(
+                                                        child: Column(
+                                                          crossAxisAlignment:
+                                                              CrossAxisAlignment
+                                                                  .start,
+                                                          children: [
+                                                            Text(
+                                                              'Keluar',
+                                                              style: TextStyle(
+                                                                fontSize: 12,
+                                                                color: Colors
+                                                                    .grey[600],
+                                                              ),
+                                                            ),
+                                                            const SizedBox(
+                                                                height: 4),
+                                                            Row(
+                                                              children: [
+                                                                Icon(
+                                                                  Icons.logout,
+                                                                  size: 16,
+                                                                  color: Colors
+                                                                      .orange,
+                                                                ),
+                                                                const SizedBox(
+                                                                    width: 4),
+                                                                Text(
+                                                                  checkOutTime,
+                                                                  style:
+                                                                      TextStyle(
+                                                                    fontSize:
+                                                                        16,
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .bold,
+                                                                    color: Colors
+                                                                        .black87,
+                                                                  ),
+                                                                ),
+                                                              ],
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),
                                 ),
-                              );
-                            },
-                          ),
+                              ),
+                            );
+                          },
                         ),
             ),
           ),
@@ -585,5 +707,12 @@ class AllPresensiView extends GetView<AllPresensiController> {
         Get.offAllNamed(Routes.PROFILE);
         break;
     }
+  }
+
+  // Helper method to prepare data structure for detail view
+  Map<String, dynamic> _prepareDataForDetailView(
+      Map<String, dynamic> originalData, String docId) {
+    // Use the controller's normalize method which has proper data handling
+    return controller.normalizePresenceData(originalData, docId);
   }
 }

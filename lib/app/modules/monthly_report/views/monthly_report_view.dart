@@ -220,30 +220,32 @@ class MonthlyReportView extends GetView<MonthlyReportController> {
             const SizedBox(height: 12),
             _buildStatItem(
                 'Total Pegawai',
-                '${controller.dataStats['totalEmployees']} pegawai',
+                '${controller.totalEmployees} pegawai',  // Use getter instead of dataStats access
                 Icons.people),
             const Divider(),
             _buildStatItem(
                 'Total Hari Kehadiran',
-                '${controller.dataStats['totalPresentDays']} hari',
+                '${controller.totalPresentDays} hari',  // Use getter instead of dataStats access
                 Icons.check_circle),
             const Divider(),
             _buildStatItem(
                 'Total Hari Ketidakhadiran',
-                '${controller.dataStats['totalAbsentDays']} hari',
+                '${controller.totalAbsentDays} hari',  // Use getter instead of dataStats access
                 Icons.person_off),
             const Divider(),
             _buildStatItem(
                 'Total Hari Keterlambatan',
-                '${controller.dataStats['totalLateDays']} hari',
+                '${controller.totalLateDays} hari',  // Use getter instead of dataStats access
                 Icons.timer_off),
             const Divider(),
             _buildStatItem(
                 'Total Hari Pulang Awal',
-                '${controller.dataStats['totalEarlyLeaveDays']} hari',
+                '${controller.totalEarlyLeaveDays} hari',  // Use getter instead of dataStats access
                 Icons.exit_to_app),
             const Divider(),
-            _buildStatItem('Periode', controller.dataStats['period'] ?? '',
+            _buildStatItem(
+                'Periode',
+                controller.period,  // Use getter instead of dataStats access
                 Icons.date_range),
             const SizedBox(height: 12),
             SizedBox(
@@ -316,4 +318,5 @@ class MonthlyReportView extends GetView<MonthlyReportController> {
       ),
     );
   }
+  
 }

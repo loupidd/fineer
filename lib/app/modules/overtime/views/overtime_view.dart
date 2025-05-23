@@ -43,6 +43,7 @@ class OvertimeView extends GetView<OvertimeController> {
       ),
       body: Obx(() => Stack(
             children: [
+              // Main content
               ListView(
                 padding: const EdgeInsets.all(20),
                 children: [
@@ -95,51 +96,81 @@ class OvertimeView extends GetView<OvertimeController> {
                         SizedBox(height: 25),
 
                         // Employee Info Section
-                        AnimatedContainer(
-                          duration: Duration(milliseconds: 500),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[50],
-                            borderRadius: BorderRadius.circular(15),
-                          ),
-                          padding: EdgeInsets.all(15),
-                          child: Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 25,
-                                backgroundColor: Color(0xFF2069B3),
-                                child: Text(
-                                  "FT",
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                                ),
+                        Obx(() => AnimatedContainer(
+                              duration: Duration(milliseconds: 500),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[50],
+                                borderRadius: BorderRadius.circular(15),
                               ),
-                              SizedBox(width: 15),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    "Fauzi Tanjung",
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
+                              padding: EdgeInsets.all(15),
+                              child: controller.isLoading.value
+                                  ? Center(
+                                      child: CircularProgressIndicator(
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                                Color(0xFF2069B3)),
+                                      ),
+                                    )
+                                  : Row(
+                                      children: [
+                                        CircleAvatar(
+                                          radius: 25,
+                                          backgroundColor: Color(0xFF2069B3),
+                                          child: Obx(() => Text(
+                                                controller.userDataMap[
+                                                                'name'] !=
+                                                            null &&
+                                                        controller.userDataMap
+                                                            ['name']
+                                                            .toString()
+                                                            .isNotEmpty
+                                                    ? controller
+                                                        .userDataMap['name']
+                                                        .toString()
+                                                        .substring(0, 2)
+                                                        .toUpperCase()
+                                                    : "NA",
+                                                style: TextStyle(
+                                                  fontSize: 18,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.white,
+                                                ),
+                                              )),
+                                        ),
+                                        SizedBox(width: 15),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Obx(() => Text(
+                                                    controller.userDataMap
+                                                            ['name'] ??
+                                                        "Name not available",
+                                                    style: TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      fontSize: 16,
+                                                    ),
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  )),
+                                              SizedBox(height: 2),
+                                              Obx(() => Text(
+                                                    "Employee ID: ${controller.userDataMap['employeeId'] ?? 'N/A'}",
+                                                    style: TextStyle(
+                                                      color: Colors.grey[600],
+                                                      fontSize: 14,
+                                                    ),
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  )),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ),
-                                  SizedBox(height: 2),
-                                  Text(
-                                    "Employee ID: EMP-2023",
-                                    style: TextStyle(
-                                      color: Colors.grey[600],
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
+                            )),
 
                         SizedBox(height: 25),
 
@@ -393,13 +424,25 @@ class OvertimeView extends GetView<OvertimeController> {
                     onTap: () {
                       if (controller.isFormValid()) {
                         controller.isSubmitting.value = true;
-                        Future.delayed(Duration(seconds: 2), () {
+                        controller.submitOvertimeRequest().then((_) {
                           controller.isSubmitting.value = false;
                           controller.isSuccess.value = true;
-                          Future.delayed(Duration(seconds: 2), () {
+
+                          // Auto-hide success message after 3 seconds
+                          Future.delayed(Duration(seconds: 3), () {
                             controller.isSuccess.value = false;
                             controller.resetForm();
                           });
+                        }).catchError((error) {
+                          controller.isSubmitting.value = false;
+                          Get.snackbar(
+                            "Error",
+                            "Failed to submit overtime request: ${error.toString()}",
+                            backgroundColor: Colors.red[100],
+                            colorText: Colors.red[800],
+                            margin: EdgeInsets.all(15),
+                            snackPosition: SnackPosition.BOTTOM,
+                          );
                         });
                       } else {
                         Get.snackbar(
@@ -445,80 +488,87 @@ class OvertimeView extends GetView<OvertimeController> {
                 ],
               ),
 
-              // Loading and Success Overlays
-              if (controller.isSubmitting.value || controller.isSuccess.value)
-                Container(
-                  color: Colors.black.withAlpha((0.5 * 255).round()),
-                  child: Center(
-                    child: controller.isSubmitting.value
-                        ? Container(
-                            padding: EdgeInsets.all(30),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                CircularProgressIndicator(
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                      Color(0xFF2069B3)),
-                                ),
-                                SizedBox(height: 20),
-                                Text(
-                                  "Submitting request...",
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        : Container(
-                            padding: EdgeInsets.all(30),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  padding: EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: Colors.green[50],
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(
-                                    Icons.check_circle,
-                                    color: Colors.green,
-                                    size: 50,
-                                  ),
-                                ),
-                                SizedBox(height: 20),
-                                Text(
-                                  "Success!",
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 18,
-                                    color: Colors.green,
-                                  ),
-                                ),
-                                SizedBox(height: 10),
-                                Text(
-                                  "Your overtime request has been submitted",
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey[700],
-                                  ),
-                                ),
-                              ],
-                            ),
+              // Loading Overlay
+              Obx(() => controller.isSubmitting.value
+                  ? Container(
+                      color: Colors.black..withAlpha((0.3 * 255).round()),
+                      child: Center(
+                        child: Container(
+                          padding: EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(15),
                           ),
-                  ),
-                ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                    Color(0xFF2069B3)),
+                              ),
+                              SizedBox(height: 15),
+                              Text(
+                                "Submitting...",
+                                style: TextStyle(fontWeight: FontWeight.w500),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    )
+                  : SizedBox.shrink()),
+
+              // Success Overlay
+              Obx(() => controller.isSuccess.value
+                  ? Container(
+                      color: Colors.black..withAlpha((0.3 * 255).round()),
+                      child: Center(
+                        child: Container(
+                          padding: EdgeInsets.all(30),
+                          margin: EdgeInsets.all(30),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                padding: EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: Colors.green[50],
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  Icons.check_circle,
+                                  color: Colors.green,
+                                  size: 50,
+                                ),
+                              ),
+                              SizedBox(height: 20),
+                              Text(
+                                "Success!",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                  color: Colors.green,
+                                ),
+                              ),
+                              SizedBox(height: 10),
+                              Text(
+                                "Your overtime request has been submitted",
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[700],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    )
+                  : SizedBox.shrink()),
             ],
           )),
 
@@ -705,31 +755,153 @@ class OvertimeView extends GetView<OvertimeController> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              IconButton(
-                onPressed: () => Get.back(),
-                icon: Icon(Icons.close),
-                color: Colors.grey[700],
+              Row(
+                children: [
+                  // Refresh button
+                  IconButton(
+                    onPressed: () {
+                      controller.isLoadingHistory.value = true;
+                      controller.fetchOvertimeHistory().then((_) {
+                        controller.isLoadingHistory.value = false;
+                      }).catchError((error) {
+                        controller.isLoadingHistory.value = false;
+                        Get.snackbar(
+                          "Error",
+                          "Failed to load overtime history: ${error.toString()}",
+                          backgroundColor: Colors.red[100],
+                          colorText: Colors.red[800],
+                        );
+                      });
+                    },
+                    icon: Icon(Icons.refresh),
+                    color: Color(0xFF2069B3),
+                  ),
+                  IconButton(
+                    onPressed: () => Get.back(),
+                    icon: Icon(Icons.close),
+                    color: Colors.grey[700],
+                  ),
+                ],
               ),
             ],
           ),
           SizedBox(height: 15),
-          _buildOvertimeHistoryItem(
-            date: "May 5, 2025",
-            time: "18:00 - 21:00",
-            status: "Approved",
-            statusColor: Colors.green,
+          // Month picker
+          InkWell(
+            onTap: () => controller.selectMonth(Get.context!),
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.grey[300]!),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.calendar_month, color: Color(0xFF2069B3)),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      controller.monthC.text,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.arrow_drop_down, color: Colors.grey[600]),
+                ],
+              ),
+            ),
           ),
-          _buildOvertimeHistoryItem(
-            date: "Apr 28, 2025",
-            time: "17:30 - 20:30",
-            status: "Completed",
-            statusColor: Colors.blue,
-          ),
-          _buildOvertimeHistoryItem(
-            date: "Apr 15, 2025",
-            time: "18:00 - 22:00",
-            status: "Rejected",
-            statusColor: Colors.red,
+          SizedBox(height: 15),
+          // Overtime history list (dynamic)
+          Flexible(
+            child: Obx(() {
+              if (controller.isLoadingHistory.value) {
+                return Center(
+                  child: CircularProgressIndicator(
+                    valueColor:
+                        AlwaysStoppedAnimation<Color>(Color(0xFF2069B3)),
+                  ),
+                );
+              } else if (controller.overtimeHistory.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.history_toggle_off,
+                        size: 50,
+                        color: Colors.grey[400],
+                      ),
+                      SizedBox(height: 10),
+                      Text(
+                        "No overtime records found",
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              } else {
+                return ListView.builder(
+                  shrinkWrap: true,
+                  physics: BouncingScrollPhysics(),
+                  itemCount: controller.overtimeHistory.length,
+                  itemBuilder: (context, index) {
+                    final record = controller.overtimeHistory[index];
+
+                    // Convert Timestamp to DateTime
+                    final startTime = (record['startTime'] != null)
+                        ? (record['startTime'] is DateTime
+                            ? record['startTime'] as DateTime
+                            : (record['startTime'])?.toDate() ?? DateTime.now())
+                        : DateTime.now();
+
+                    final endTime = (record['endTime'] != null)
+                        ? (record['endTime'] is DateTime
+                            ? record['endTime'] as DateTime
+                            : (record['endTime'])?.toDate() ?? DateTime.now())
+                        : startTime
+                            .add(Duration(hours: controller.duration.value));
+
+                    // Format the date and time
+                    final date = DateFormat('MMM d, yyyy').format(startTime);
+                    final time =
+                        "${DateFormat('HH:mm').format(startTime)} - ${DateFormat('HH:mm').format(endTime)}";
+
+                    // Determine status color
+                    Color statusColor;
+                    final status = record['status'] ?? 'Pending';
+
+                    switch (status) {
+                      case 'Approved':
+                        statusColor = Colors.green;
+                        break;
+                      case 'Rejected':
+                        statusColor = Colors.red;
+                        break;
+                      case 'Completed':
+                        statusColor = Colors.blue;
+                        break;
+                      case 'Pending':
+                        statusColor = Colors.orange;
+                        break;
+                      default:
+                        statusColor = Colors.grey;
+                    }
+
+                    return _buildOvertimeHistoryItem(
+                      date: date,
+                      time: time,
+                      status: status,
+                      statusColor: statusColor,
+                    );
+                  },
+                );
+              }
+            }),
           ),
           SizedBox(height: 20),
         ],
@@ -811,11 +983,8 @@ class OvertimeView extends GetView<OvertimeController> {
 
 // Extension to OvertimeController
 extension OvertimeControllerExtension on OvertimeController {
-  // These methods would need to be implemented in your controller
   void incrementDuration() {
-    if (duration.value < 12) {
-      duration.value++;
-    }
+    duration.value++;
   }
 
   void decrementDuration() {
@@ -829,15 +998,13 @@ extension OvertimeControllerExtension on OvertimeController {
   }
 
   bool isFormValid() {
-    return nameC.text.isNotEmpty &&
-        tanggalC.text.isNotEmpty &&
+    return tanggalC.text.isNotEmpty &&
         waktuC.text.isNotEmpty &&
         desC.text.isNotEmpty &&
         selectedCategory.value.isNotEmpty;
   }
 
   void resetForm() {
-    nameC.clear();
     tanggalC.clear();
     waktuC.clear();
     desC.clear();

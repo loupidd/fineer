@@ -32,7 +32,7 @@ class PageIndexController extends GetxController {
   ];
 
   // Define radius in meters
-  final double officeRadius = 600.0;
+  final double officeRadius = 1000.0;
 
   void changePage(int i) async {
     // Update page index first
