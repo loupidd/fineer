@@ -17,7 +17,7 @@ Fineer is a Flutter-based mobile application designed for internal attendance tr
 
 ## Tech Stack
 
-- Flutter (3.0+)
+- Flutter 
 - Firebase Core
 - Firebase Authentication
 - Cloud Firestore
