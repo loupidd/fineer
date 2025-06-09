@@ -13,8 +13,6 @@ import '../modules/login/bindings/login_binding.dart';
 import '../modules/login/views/login_view.dart';
 import '../modules/monthly_report/bindings/monthly_report_binding.dart';
 import '../modules/monthly_report/views/monthly_report_view.dart';
-import '../modules/overtime/bindings/overtime_binding.dart';
-import '../modules/overtime/views/overtime_view.dart';
 import '../modules/profile/bindings/profile_binding.dart';
 import '../modules/profile/views/profile_view.dart';
 
@@ -54,11 +52,6 @@ class AppPages {
         name: _Paths.ALL_PRESENSI,
         page: () => AllPresensiView(),
         binding: AllPresensiBinding(),
-        transition: Transition.fadeIn),
-    GetPage(
-        name: _Paths.OVERTIME,
-        page: () => OvertimeView(),
-        binding: OvertimeBinding(),
         transition: Transition.fadeIn),
     GetPage(
       name: _Paths.SPLASH,

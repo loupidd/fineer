@@ -557,9 +557,6 @@ class ProfileView extends GetView<ProfileController> {
         Get.offAllNamed(Routes.ALL_PRESENSI);
         break;
       case 2:
-        Get.offAllNamed(Routes.OVERTIME);
-        break;
-      case 3:
         Get.offAllNamed(Routes.PROFILE);
         break;
     }
@@ -600,15 +597,9 @@ class ProfileView extends GetView<ProfileController> {
                 isSelected: pageC.pageIndex.value == 1,
               ),
               _buildNavBarItem(
-                icon: Icons.access_time,
-                label: 'Overtime',
-                index: 2,
-                isSelected: pageC.pageIndex.value == 2,
-              ),
-              _buildNavBarItem(
                 icon: Icons.person,
                 label: 'Profile',
-                index: 3,
+                index: 2,
                 isSelected: pageC.pageIndex.value == 3,
               ),
             ],

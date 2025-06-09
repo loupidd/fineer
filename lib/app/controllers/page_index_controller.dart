@@ -26,8 +26,8 @@ class PageIndexController extends GetxController {
     },
     {
       "name": "Nifarro Park",
-      "lat": -6.2634839,
-      "long": 106.8441253,
+      "lat": -6.263531780484561,
+      "long": 106.84382629294092,
     },
   ];
 
@@ -46,7 +46,7 @@ class PageIndexController extends GetxController {
             .HOME); // Navigate back to home or to a dedicated attendance page
         break;
       case 2: // Overtime page
-        Get.offAllNamed(Routes.OVERTIME);
+        Get.offAllNamed(Routes.PROFILE);
         break;
       default: // Home page
         Get.offAllNamed(Routes.HOME);
