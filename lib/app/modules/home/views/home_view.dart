@@ -1,7 +1,6 @@
-// Removed math import as it's no longer needed
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fineer/app/controllers/page_index_controller.dart';
+import 'package:fineer/app/modules/biometric/controllers/biometric_controller.dart';
 import 'package:fineer/app/routes/app_pages.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -12,15 +11,13 @@ import 'package:logger/logger.dart';
 import '../controllers/home_controller.dart';
 
 final _logger = Logger();
-
 FirebaseAuth auth = FirebaseAuth.instance;
 
 class HomeView extends GetView<HomeController> {
   final pageC = Get.find<PageIndexController>();
+  final biometricC = Get.put(BiometricController());
 
   HomeView({super.key});
-
-  // Office locations are defined in PageIndexController
 
   get stackTrace => null;
 
@@ -34,7 +31,6 @@ class HomeView extends GetView<HomeController> {
       ),
       body: SafeArea(
         child: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          // Changed to FutureBuilder for initial load
           future: controller.getUserOnce(),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
@@ -64,6 +60,7 @@ class HomeView extends GetView<HomeController> {
         const SizedBox(height: 24),
         _buildHeroSection(user),
         const SizedBox(height: 16),
+        _buildBiometricPromptCard(),
         _buildAttendanceSection(),
         const SizedBox(height: 24),
         if (user["role"] == "admin") _buildAdminSection(),
@@ -77,8 +74,124 @@ class HomeView extends GetView<HomeController> {
     );
   }
 
+  Widget _buildBiometricPromptCard() {
+    return Obx(() {
+      if (!biometricC.isBiometricAvailable.value ||
+          biometricC.isBiometricEnabled.value ||
+          biometricC.isCheckingBiometric.value) {
+        return const SizedBox.shrink();
+      }
+
+      return Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF667EEA),
+              Color(0xFF764BA2),
+            ],
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF667EEA).withValues(alpha: 0.3),
+              blurRadius: 15,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => Get.toNamed(Routes.BIOMETRIC_SETUP),
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      biometricC.getBiometricIcon(),
+                      color: Colors.white,
+                      size: 32,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Text(
+                              'Quick Login',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.amber,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Text(
+                                'NEW',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Enable ${biometricC.getBiometricTypeName()} for faster access',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.arrow_forward_ios,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
   Widget _buildWelcomeSection(Map<String, dynamic> user) {
-    // Optimized welcome section with const widgets where possible
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
       child: Row(
@@ -156,7 +269,6 @@ class HomeView extends GetView<HomeController> {
   }
 
   Widget _buildHeroSection(Map<String, dynamic> user) {
-    // Using more const widgets for better performance
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -189,7 +301,6 @@ class HomeView extends GetView<HomeController> {
             ),
           ),
           const SizedBox(height: 16),
-          // Use StreamBuilder instead of direct user data to get real-time updates
           StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
             stream: controller.streamTodayPresence(),
             builder: (context, snapshot) {
@@ -212,7 +323,6 @@ class HomeView extends GetView<HomeController> {
                 Map<String, dynamic> presenceData = snapshot.data!.data() ?? {};
                 _logger.d('Today presence data: $presenceData');
 
-                // Get check-in data
                 final checkInData = presenceData['masuk'];
                 final hasCheckedIn = checkInData != null;
                 String checkInTime = '--:--';
@@ -227,7 +337,6 @@ class HomeView extends GetView<HomeController> {
                   }
                 }
 
-                // Get check-out data
                 final checkOutData = presenceData['keluar'];
                 final hasCheckedOut = checkOutData != null;
                 String checkOutTime = '--:--';
@@ -290,7 +399,6 @@ class HomeView extends GetView<HomeController> {
       width: 130,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        // Modified: Use semi-transparent white for both states, just different opacity
         color: isCompleted
             ? Colors.blue.withAlpha(200)
             : Colors.blue.withAlpha(50),
@@ -316,7 +424,7 @@ class HomeView extends GetView<HomeController> {
           const SizedBox(height: 4),
           Text(
             value,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
               color: Colors.white,
@@ -346,7 +454,6 @@ class HomeView extends GetView<HomeController> {
   }
 
   Widget _buildAttendanceSection() {
-    // Optimized with const widgets where possible
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -420,45 +527,59 @@ class HomeView extends GetView<HomeController> {
     required Color color,
     required VoidCallback onTap,
   }) {
-    return Material(
-      color: color.withAlpha((0.1 * 255).round()),
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        onTap: onTap,
+    return Obx(() {
+      bool isProcessing = pageC.isProcessingAttendance.value;
+
+      return Material(
+        color: color.withAlpha((0.1 * 255).round()),
         borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icon,
-                color: color,
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: color,
+        child: InkWell(
+          onTap: isProcessing ? null : onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (isProcessing)
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(color),
+                    ),
+                  )
+                else
+                  Icon(
+                    icon,
+                    color: color,
+                    size: 20,
+                  ),
+                const SizedBox(width: 8),
+                Text(
+                  isProcessing ? 'Processing...' : label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: isProcessing ? color.withValues(alpha: 0.5) : color,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
-    );
+      );
+    });
   }
 
   Widget _buildAdminSection() {
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.all(20),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        gradient: LinearGradient(
+        gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
@@ -471,7 +592,7 @@ class HomeView extends GetView<HomeController> {
             color: Colors.grey.withAlpha((0.3 * 255).round()),
             spreadRadius: 1,
             blurRadius: 5,
-            offset: Offset(0, 3),
+            offset: const Offset(0, 3),
           ),
         ],
       ),
@@ -479,7 +600,7 @@ class HomeView extends GetView<HomeController> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Column(
+          const Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
@@ -503,13 +624,14 @@ class HomeView extends GetView<HomeController> {
           Flexible(
             child: ElevatedButton.icon(
               onPressed: () => Get.toNamed(Routes.ADD_PEGAWAI),
-              icon: Icon(Icons.person_add, color: Colors.blue),
-              label: Text('Add'),
+              icon: const Icon(Icons.person_add, color: Colors.blue),
+              label: const Text('Add'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.blue[800],
                 elevation: 0,
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30),
                 ),
@@ -524,10 +646,10 @@ class HomeView extends GetView<HomeController> {
   Widget _buildAdminPanel() {
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.all(20),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        gradient: LinearGradient(
+        gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
@@ -540,7 +662,7 @@ class HomeView extends GetView<HomeController> {
             color: Colors.grey.withAlpha((0.3 * 255).round()),
             spreadRadius: 1,
             blurRadius: 5,
-            offset: Offset(0, 3),
+            offset: const Offset(0, 3),
           ),
         ],
       ),
@@ -548,7 +670,7 @@ class HomeView extends GetView<HomeController> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Column(
+          const Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
@@ -572,13 +694,14 @@ class HomeView extends GetView<HomeController> {
           Flexible(
             child: ElevatedButton.icon(
               onPressed: () => Get.toNamed(Routes.MONTHLY_REPORT),
-              icon: Icon(Icons.document_scanner, color: Colors.blue),
-              label: Text('Get'),
+              icon: const Icon(Icons.document_scanner, color: Colors.blue),
+              label: const Text('Get'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.blue[800],
                 elevation: 0,
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(30),
                 ),
@@ -640,7 +763,6 @@ class HomeView extends GetView<HomeController> {
               snapshot.data!.docs.length > 5 ? 5 : snapshot.data!.docs.length,
           itemBuilder: (context, index) {
             Map<String, dynamic> data = snapshot.data!.docs[index].data();
-
             return _buildPresenceHistoryItem(data);
           },
         );
@@ -904,10 +1026,10 @@ class HomeView extends GetView<HomeController> {
               onTap: () {
                 Get.offAllNamed(Routes.PROFILE);
               },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
                 child: Row(
-                  children: const [
+                  children: [
                     Icon(Icons.person, color: Colors.blue),
                     SizedBox(width: 12),
                     Text(
@@ -943,10 +1065,10 @@ class HomeView extends GetView<HomeController> {
                   ],
                 );
               },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
                 child: Row(
-                  children: const [
+                  children: [
                     Icon(Icons.logout, color: Colors.red),
                     SizedBox(width: 12),
                     Text(
@@ -980,10 +1102,8 @@ class HomeView extends GetView<HomeController> {
 
   void presensi(String type) async {
     try {
-      // Use PageIndexController to handle attendance with proper location checks
       await pageC.processAttendance();
     } catch (e) {
-      // Handle errors
       Get.snackbar(
         'Error',
         'Failed to record attendance: $e',

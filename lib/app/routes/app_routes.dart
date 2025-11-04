@@ -14,6 +14,8 @@ abstract class Routes {
   static const OVERTIME = _Paths.OVERTIME;
   static const PROFILE = _Paths.PROFILE;
   static const MONTHLY_REPORT = _Paths.MONTHLY_REPORT;
+  static const BIOMETRIC_SETUP = _Paths.BIOMETRIC_SETUP;
+  static const BIOMETRIC = _Paths.BIOMETRIC;
 }
 
 abstract class _Paths {
@@ -27,4 +29,6 @@ abstract class _Paths {
   static const OVERTIME = '/overtime';
   static const PROFILE = '/profile';
   static const MONTHLY_REPORT = '/monthly-report';
+  static const BIOMETRIC_SETUP = '/biometric-setup';
+  static const BIOMETRIC = '/biometric';
 }

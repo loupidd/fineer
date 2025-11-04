@@ -17,6 +17,9 @@ class PageIndexController extends GetxController {
   FirebaseAuth auth = FirebaseAuth.instance;
   FirebaseFirestore firestore = FirebaseFirestore.instance;
 
+  // Processing flag to prevent double-clicks
+  RxBool isProcessingAttendance = false.obs;
+
   // Define our office locations
   final List<Map<String, dynamic>> officeLocations = [
     {
@@ -34,6 +37,10 @@ class PageIndexController extends GetxController {
   // Define radius in meters
   final double officeRadius = 1000.0;
 
+  // Security: Minimum time between location updates (in seconds)
+  final int minLocationUpdateInterval = 5;
+  DateTime? lastLocationUpdate;
+
   void changePage(int i) async {
     // Update page index first
     pageIndex.value = i;
@@ -41,9 +48,7 @@ class PageIndexController extends GetxController {
     // Handle page navigation based on index
     switch (i) {
       case 1: // Attendance page
-        // Don't automatically trigger attendance - just navigate to the page
-        Get.offAllNamed(Routes
-            .HOME); // Navigate back to home or to a dedicated attendance page
+        Get.offAllNamed(Routes.HOME);
         break;
       case 2: // Overtime page
         Get.offAllNamed(Routes.PROFILE);
@@ -53,27 +58,114 @@ class PageIndexController extends GetxController {
     }
   }
 
-  // New method to explicitly handle attendance check-in/check-out
+  // Improved method with debouncing and security checks
   Future<void> processAttendance() async {
-    // First get the current position
-    Map<String, dynamic> dataResponse = await _determinePosition();
+    // Prevent double-clicks with debouncing
+    if (isProcessingAttendance.value) {
+      Get.snackbar(
+        "Mohon Tunggu",
+        "Sedang memproses presensi...",
+        snackPosition: SnackPosition.BOTTOM,
+        duration: const Duration(seconds: 2),
+      );
+      return;
+    }
 
-    if (dataResponse["error"] != true) {
-      Position position = dataResponse["position"];
+    try {
+      // Set processing flag
+      isProcessingAttendance.value = true;
 
-      // GeoCoding - Coordinates to Address
-      List<Placemark> placemarks =
-          await placemarkFromCoordinates(position.latitude, position.longitude);
-      String address =
-          " ${placemarks[0].street},${placemarks[0].subLocality},${placemarks[0].locality}";
+      // Show loading indicator
+      Get.dialog(
+        const Center(
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.all(20.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text("Memverifikasi lokasi..."),
+                ],
+              ),
+            ),
+          ),
+        ),
+        barrierDismissible: false,
+      );
 
-      // Update user position in database
-      await updatePosition(position, address);
+      // Security check: Rate limiting for location requests
+      if (lastLocationUpdate != null) {
+        final timeSinceLastUpdate =
+            DateTime.now().difference(lastLocationUpdate!).inSeconds;
+        if (timeSinceLastUpdate < minLocationUpdateInterval) {
+          Get.back(); // Close loading dialog
+          Get.snackbar(
+            "Terlalu Cepat",
+            "Harap tunggu beberapa detik sebelum mencoba lagi",
+            snackPosition: SnackPosition.BOTTOM,
+          );
+          return;
+        }
+      }
 
-      // Check if user is in office and process attendance
-      await checkPresenceInOffice(position, address);
-    } else {
-      Get.snackbar("Terjadi Kesalahan", dataResponse["message"]);
+      // Get current position with security checks
+      Map<String, dynamic> dataResponse = await _determinePositionSecure();
+
+      // Close loading dialog
+      Get.back();
+
+      if (dataResponse["error"] != true) {
+        Position position = dataResponse["position"];
+        bool isMocked = dataResponse["isMocked"] ?? false;
+
+        // Security: Check if location is mocked/fake
+        if (isMocked) {
+          _showErrorNotification(
+            "Lokasi Tidak Valid",
+            "Terdeteksi penggunaan lokasi palsu. Mohon gunakan lokasi asli.",
+          );
+          return;
+        }
+
+        // Update last location timestamp
+        lastLocationUpdate = DateTime.now();
+
+        // GeoCoding - Coordinates to Address
+        List<Placemark> placemarks = await placemarkFromCoordinates(
+          position.latitude,
+          position.longitude,
+        );
+        String address = " ${placemarks[0].street},"
+            "${placemarks[0].subLocality},"
+            "${placemarks[0].locality}";
+
+        // Update user position in database
+        await updatePosition(position, address);
+
+        // Check if user is in office and process attendance
+        await checkPresenceInOffice(position, address);
+      } else {
+        Get.snackbar("Terjadi Kesalahan", dataResponse["message"]);
+      }
+    } catch (e) {
+      // Close loading dialog if still open
+      if (Get.isDialogOpen ?? false) {
+        Get.back();
+      }
+
+      Get.snackbar(
+        "Error",
+        "Gagal memproses presensi: $e",
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+    } finally {
+      // Reset processing flag after a short delay
+      await Future.delayed(const Duration(milliseconds: 500));
+      isProcessingAttendance.value = false;
     }
   }
 
@@ -116,7 +208,7 @@ class PageIndexController extends GetxController {
     );
   }
 
-  //Presensi
+  // Presensi with improved modals
   Future<void> presensi(
     Position position,
     String address,
@@ -124,181 +216,477 @@ class PageIndexController extends GetxController {
     bool isInRange,
     String officeName,
   ) async {
-    String uid = await auth.currentUser!.uid;
-    CollectionReference<Map<String, dynamic>> colPresence =
-        await firestore.collection("pegawai").doc(uid).collection("presence");
+    try {
+      String uid = auth.currentUser!.uid;
+      CollectionReference<Map<String, dynamic>> colPresence =
+          firestore.collection("pegawai").doc(uid).collection("presence");
 
-    QuerySnapshot<Map<String, dynamic>> snapPresence = await colPresence.get();
+      DateTime now = DateTime.now();
+      String todayDocID = DateFormat.yMd().format(now).replaceAll("/", "-");
 
-    DateTime now = DateTime.now();
-    String todayDocID = DateFormat.yMd().format(now).replaceAll("/", "-");
+      String status = isInRange ? "Di dalam Area" : "Di luar Area";
+      String locationInfo = isInRange
+          ? "📍 $officeName\n📏 ${distance.toStringAsFixed(0)} meter dari kantor"
+          : "⚠️ Anda berada ${distance.toStringAsFixed(0)} meter dari $officeName";
 
-    String status = isInRange ? "Di dalam Area" : "Di luar Area";
-    String locationInfo = isInRange
-        ? "Lokasi: $officeName (${distance.toStringAsFixed(2)}m)"
-        : "Jarak ke lokasi terdekat: ${distance.toStringAsFixed(2)}m ($officeName)";
-
-    if (isInRange) {
-      if (snapPresence.docs.isEmpty) {
-        //Belum pernah absen
-        await Get.defaultDialog(
-            title: "Validasi Presensi",
-            middleText:
-                "Yakin untuk mengisi absen MASUK sekarang?\n$locationInfo",
-            actions: [
-              OutlinedButton(
-                  onPressed: () => Get.back(), child: const Text("Cancel")),
-              ElevatedButton(
-                  onPressed: () async {
-                    await colPresence.doc(todayDocID).set({
-                      "date": now.toIso8601String(),
-                      "masuk": {
-                        "date": now.toIso8601String(),
-                        "lat": position.latitude,
-                        "long": position.longitude,
-                        "address": address,
-                        "status": status,
-                        "distance": distance,
-                        "office": officeName,
-                      }
-                    });
-                    Get.back();
-                    Get.snackbar(
-                        "Berhasil", "Kamu berhasil mengisi Absen MASUK");
-                  },
-                  child: const Text("Yes"))
-            ]);
-      } else {
-        //Sudah Pernah Absen -> Cek hari ini sudah absen masuk/keluar
+      if (isInRange) {
         DocumentSnapshot<Map<String, dynamic>> todayDoc =
             await colPresence.doc(todayDocID).get();
 
-        if (todayDoc.exists == true) {
-          //Absen Keluar / Sudah absen masuk & keluar
+        if (todayDoc.exists) {
           Map<String, dynamic>? dataPresenceToday = todayDoc.data();
+
           if (dataPresenceToday?["keluar"] != null) {
-            //Sudah Absen masuk & Keluar
-            Get.snackbar("Peringatan", "Kamu telah absen masuk dan keluar");
-          } else {
-            //absen keluar
-            await Get.defaultDialog(
-                title: "Validasi Presensi",
-                middleText:
-                    "Yakin untuk mengisi absen KELUAR sekarang?\n$locationInfo",
-                actions: [
-                  OutlinedButton(
-                      onPressed: () => Get.back(), child: const Text("Cancel")),
-                  ElevatedButton(
-                      onPressed: () async {
-                        await colPresence.doc(todayDocID).update({
-                          "keluar": {
-                            "date": now.toIso8601String(),
-                            "lat": position.latitude,
-                            "long": position.longitude,
-                            "address": address,
-                            "status": status,
-                            "distance": distance,
-                            "office": officeName,
-                          }
-                        });
-                        Get.back();
-                        Get.snackbar(
-                            "Berhasil", "Kamu berhasil mengisi Absen KELUAR");
-                      },
-                      child: const Text("Yes"))
-                ]);
+            _showErrorNotification(
+              "Sudah Absen",
+              "Anda telah melakukan absen masuk dan keluar hari ini.",
+            );
+          } else if (dataPresenceToday?["masuk"] != null) {
+            // Check out
+            await _showAttendanceDialog(
+              title: "Absen Keluar",
+              message: "Konfirmasi absen keluar sekarang?\n\n$locationInfo",
+              isCheckIn: false,
+              onConfirm: () async {
+                Get.back(); // Close dialog
+
+                await colPresence.doc(todayDocID).update({
+                  "keluar": {
+                    "date": now.toIso8601String(),
+                    "lat": position.latitude,
+                    "long": position.longitude,
+                    "address": address,
+                    "status": status,
+                    "distance": distance,
+                    "office": officeName,
+                    "accuracy": position.accuracy,
+                    "timestamp": FieldValue.serverTimestamp(),
+                  }
+                });
+
+                _showSuccessNotification(
+                  "Absen keluar berhasil dicatat",
+                  false,
+                );
+              },
+            );
           }
         } else {
-          //absen masuk
-          await Get.defaultDialog(
-              title: "Validasi Presensi",
-              middleText:
-                  "Yakin untuk mengisi absen MASUK sekarang?\n$locationInfo",
-              actions: [
-                OutlinedButton(
-                    onPressed: () => Get.back(), child: const Text("Cancel")),
-                ElevatedButton(
-                    onPressed: () async {
-                      await colPresence.doc(todayDocID).set({
-                        "date": now.toIso8601String(),
-                        "masuk": {
-                          "date": now.toIso8601String(),
-                          "lat": position.latitude,
-                          "long": position.longitude,
-                          "address": address,
-                          "status": status,
-                          "distance": distance,
-                          "office": officeName,
-                        }
-                      }, SetOptions(merge: true));
-                      Get.back();
-                      Get.snackbar(
-                          "Berhasil", "Kamu berhasil mengisi Absen MASUK");
-                    },
-                    child: const Text("Yes"))
-              ]);
+          // Check in
+          await _showAttendanceDialog(
+            title: "Absen Masuk",
+            message: "Konfirmasi absen masuk sekarang?\n\n$locationInfo",
+            isCheckIn: true,
+            onConfirm: () async {
+              Get.back(); // Close dialog
+
+              await colPresence.doc(todayDocID).set({
+                "date": now.toIso8601String(),
+                "office": officeName,
+                "masuk": {
+                  "date": now.toIso8601String(),
+                  "lat": position.latitude,
+                  "long": position.longitude,
+                  "address": address,
+                  "status": status,
+                  "distance": distance,
+                  "office": officeName,
+                  "accuracy": position.accuracy,
+                  "timestamp": FieldValue.serverTimestamp(),
+                }
+              });
+
+              _showSuccessNotification(
+                "Absen masuk berhasil dicatat",
+                true,
+              );
+            },
+          );
         }
+      } else {
+        _showErrorNotification(
+          "Di Luar Area Kantor",
+          "Anda berada di luar radius kantor.\n\n$locationInfo\n\nMohon datang ke kantor untuk melakukan absen.",
+        );
       }
-    } else {
-      Get.back();
-      Get.snackbar(
-          "Terjadi Kesalahan", "Diluar Area Pekerjaan ($locationInfo)");
+    } catch (e) {
+      _showErrorNotification(
+        "Terjadi Kesalahan",
+        "Gagal memproses absensi. Silakan coba lagi.",
+      );
     }
   }
 
-  //Update Position to Firebase
-  Future<void> updatePosition(Position position, String address) async {
-    String uid = await auth.currentUser!.uid;
-    await firestore.collection("pegawai").doc(uid).update({
-      "position": {"lat": position.latitude, "long": position.longitude},
-      "address": address,
+  // Modern attendance dialog with better design
+  Future<void> _showAttendanceDialog({
+    required String title,
+    required String message,
+    required VoidCallback onConfirm,
+    bool isCheckIn = true,
+  }) async {
+    await Get.dialog(
+      Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Icon
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isCheckIn
+                      ? Colors.blue.withValues(alpha: 0.1)
+                      : Colors.green.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isCheckIn ? Icons.login : Icons.logout,
+                  size: 48,
+                  color: isCheckIn ? Colors.blue : Colors.green,
+                ),
+              ),
+              const SizedBox(height: 20),
+              // Title
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Message
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 15,
+                  color: Colors.grey.shade700,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 24),
+              // Buttons
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Get.back(),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: BorderSide(color: Colors.grey.shade300),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        'Batal',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: onConfirm,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isCheckIn ? Colors.blue : Colors.green,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: const Text(
+                        'Ya, Lanjutkan',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+      barrierDismissible: false,
+    );
+  }
+
+  // Success notification with animation
+  void _showSuccessNotification(String message, bool isCheckIn) {
+    Get.dialog(
+      Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Animated checkmark
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.0, end: 1.0),
+                duration: const Duration(milliseconds: 600),
+                builder: (context, value, child) {
+                  return Transform.scale(
+                    scale: value,
+                    child: Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: (isCheckIn ? Colors.blue : Colors.green)
+                            .withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.check_circle,
+                        size: 64,
+                        color: isCheckIn ? Colors.blue : Colors.green,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Berhasil!',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Get.back(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isCheckIn ? Colors.blue : Colors.green,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    'OK',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      barrierDismissible: false,
+    );
+
+    // Auto close after 2 seconds
+    Future.delayed(const Duration(seconds: 2), () {
+      if (Get.isDialogOpen ?? false) {
+        Get.back();
+      }
     });
+  }
+
+  // Error notification
+  void _showErrorNotification(String title, String message) {
+    Get.dialog(
+      Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.error_outline,
+                  size: 48,
+                  color: Colors.red,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 15,
+                  color: Colors.grey.shade700,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Get.back(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    'Mengerti',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Update Position to Firebase with batch write for better performance
+  Future<void> updatePosition(Position position, String address) async {
+    try {
+      String uid = auth.currentUser!.uid;
+      await firestore.collection("pegawai").doc(uid).update({
+        "position": {
+          "lat": position.latitude,
+          "long": position.longitude,
+          "accuracy": position.accuracy,
+          "timestamp": FieldValue.serverTimestamp(),
+        },
+        "address": address,
+      });
+    } catch (e) {
+      // Log error but don't block attendance process
+      print("Error updating position: $e");
+    }
   }
 }
 
-//Location Permission - Geolocator Code
-Future<Map<String, dynamic>> _determinePosition() async {
+// Enhanced Location Permission with Security Checks
+Future<Map<String, dynamic>> _determinePositionSecure() async {
   bool serviceEnabled;
   LocationPermission permission;
 
-  // Test if location services are enabled.
+  // Test if location services are enabled
   serviceEnabled = await Geolocator.isLocationServiceEnabled();
   if (!serviceEnabled) {
-    // Location services are not enabled don't continue
-    // accessing the position and request users of the
-    // App to enable the location services.
-    return {"message": "GPS tidak tersedia", "error": true};
+    return {
+      "message": "GPS tidak tersedia. Mohon aktifkan lokasi.",
+      "error": true
+    };
   }
 
   permission = await Geolocator.checkPermission();
   if (permission == LocationPermission.denied) {
     permission = await Geolocator.requestPermission();
     if (permission == LocationPermission.denied) {
-      // Permissions are denied, next time you could try
-      // requesting permissions again (this is also where
-      // Android's shouldShowRequestPermissionRationale
-      // returned true. According to Android guidelines
-      // your App should show an explanatory UI now.
       return {"message": "Izinkan GPS untuk melanjutkan", "error": true};
     }
   }
 
   if (permission == LocationPermission.deniedForever) {
-    // Permissions are denied forever, handle appropriately.
-    return {"message": "Akses penggunaan GPS ditolak", "error": true};
+    return {
+      "message": "Akses penggunaan GPS ditolak secara permanen. "
+          "Mohon aktifkan di pengaturan aplikasi.",
+      "error": true
+    };
   }
 
-  // When we reach here, permissions are granted and we can
-  // continue accessing the position of the device.
-  Position position = await Geolocator.getCurrentPosition(
-    locationSettings: LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 0,
-    ),
-  );
-  return {
-    "position": position,
-    "message": "Berhasil mendapatkan lokasi device",
-    "error": false
-  };
+  try {
+    // Get position with high accuracy and timeout
+    Position position = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 0,
+        timeLimit: Duration(seconds: 10), // Add timeout
+      ),
+    ).timeout(
+      const Duration(seconds: 15),
+      onTimeout: () {
+        throw Exception("Timeout mendapatkan lokasi");
+      },
+    );
+
+    // Security: Check if location is mocked
+    bool isMocked = position.isMocked;
+
+    // Additional security: Check accuracy
+    // If accuracy is too low, it might be suspicious
+    if (position.accuracy > 100) {
+      return {
+        "message":
+            "Akurasi lokasi terlalu rendah (${position.accuracy.toStringAsFixed(0)}m). "
+                "Mohon pastikan GPS aktif dan sinyal baik.",
+        "error": true
+      };
+    }
+
+    return {
+      "position": position,
+      "isMocked": isMocked,
+      "message": "Berhasil mendapatkan lokasi device",
+      "error": false
+    };
+  } catch (e) {
+    return {"message": "Gagal mendapatkan lokasi: $e", "error": true};
+  }
 }

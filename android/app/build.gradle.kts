@@ -1,18 +1,17 @@
 plugins {
     id("com.android.application") 
     id("kotlin-android") 
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
     namespace = "com.example.fineer"
-    compileSdk = 35  // updated to modern syntax
+    compileSdk = 35  
 
     defaultConfig {
         applicationId = "com.example.fineer"
-        minSdk = 23  // or use flutter.minSdkVersion if already defined
-        targetSdk = 35  // or use flutter.targetSdkVersion
+        minSdk = 23  
+        targetSdk = 35  
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }

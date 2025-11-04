@@ -1,0 +1,8 @@
+structure:
+  lib/app:
+    - modules
+    - data
+    - routes
+    - widgets
+    - services
+    - controllers

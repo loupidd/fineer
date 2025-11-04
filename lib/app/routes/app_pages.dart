@@ -5,6 +5,8 @@ import '../modules/add_pegawai/bindings/add_pegawai_binding.dart';
 import '../modules/add_pegawai/views/add_pegawai_view.dart';
 import '../modules/all_presensi/bindings/all_presensi_binding.dart';
 import '../modules/all_presensi/views/all_presensi_view.dart';
+import '../modules/biometric/bindings/biometric_binding.dart';
+import '../modules/biometric/views/biometric_view.dart';
 import '../modules/detail_presensi/bindings/detail_presensi_binding.dart';
 import '../modules/detail_presensi/views/detail_presensi_view.dart';
 import '../modules/home/bindings/home_binding.dart';
@@ -67,6 +69,15 @@ class AppPages {
       name: _Paths.MONTHLY_REPORT,
       page: () => const MonthlyReportView(),
       binding: MonthlyReportBinding(),
+    ),
+    GetPage(
+      name: Routes.BIOMETRIC_SETUP,
+      page: () => const BiometricView(),
+    ),
+    GetPage(
+      name: _Paths.BIOMETRIC,
+      page: () => const BiometricView(),
+      binding: BiometricBinding(),
     ),
   ];
 }

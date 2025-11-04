@@ -49,7 +49,7 @@ class LoginView extends GetView<LoginController> {
                       child: Column(
                         children: [
                           Image.asset(
-                            'lib/assets/appLogo.png',
+                            'lib/assets/appLogo.webp',
                             height: size.height * 0.18,
                             errorBuilder: (context, error, stackTrace) {
                               debugPrint("Error loading logo: $error");
@@ -166,7 +166,7 @@ class LoginView extends GetView<LoginController> {
                           style: TextStyle(fontSize: 8, color: Colors.black54),
                         ),
                         Image.asset(
-                          'lib/assets/tripleS-transparent-white.png',
+                          'lib/assets/tripleS-transparent-white.webp',
                           height: size.height * 0.04,
                           errorBuilder: (context, error, stackTrace) {
                             return const SizedBox.shrink();
