@@ -37,6 +37,7 @@ dependencies:
   cross_file: ^0.3.4+2
   local_auth: ^2.2.0
   flutter_secure_storage: ^9.0.0
+  device_info_plus: ^11.3.0
 
 dev_dependencies:
   flutter_lints: ^5.0.0
@@ -48,10 +49,10 @@ flutter:
   uses-material-design: true
   assets:
     - lib/assets/fineer_lottie.json
-    - lib/assets/logo.png
-    - lib/assets/appLogo.png
-    - lib/assets/tripleS-transparent-white.png
-    - lib/assets/tripleS-transparent-black.png
+    - lib/assets/logo.webp
+    - lib/assets/appLogo.webp
+    - lib/assets/tripleS-transparent-white.webp
+    - lib/assets/tripleS-transparent-black.webp
     - lib/assets/icon.webp
 flutter_icons:
   android: true

@@ -10,6 +10,8 @@ import 'package:get/get.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:intl/intl.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'dart:io';
 
 class PageIndexController extends GetxController {
   RxInt pageIndex = 0.obs;
@@ -40,27 +42,28 @@ class PageIndexController extends GetxController {
   // Security: Minimum time between location updates (in seconds)
   final int minLocationUpdateInterval = 5;
   DateTime? lastLocationUpdate;
+  Position? lastPosition;
+
+  // Track consecutive suspicious attempts
+  int suspiciousAttempts = 0;
+  final int maxSuspiciousAttempts = 3;
 
   void changePage(int i) async {
-    // Update page index first
     pageIndex.value = i;
 
-    // Handle page navigation based on index
     switch (i) {
-      case 1: // Attendance page
+      case 1:
         Get.offAllNamed(Routes.HOME);
         break;
-      case 2: // Overtime page
+      case 2:
         Get.offAllNamed(Routes.PROFILE);
         break;
-      default: // Home page
+      default:
         Get.offAllNamed(Routes.HOME);
     }
   }
 
-  // Improved method with debouncing and security checks
   Future<void> processAttendance() async {
-    // Prevent double-clicks with debouncing
     if (isProcessingAttendance.value) {
       Get.snackbar(
         "Mohon Tunggu",
@@ -72,10 +75,8 @@ class PageIndexController extends GetxController {
     }
 
     try {
-      // Set processing flag
       isProcessingAttendance.value = true;
 
-      // Show loading indicator
       Get.dialog(
         const Center(
           child: Card(
@@ -95,12 +96,11 @@ class PageIndexController extends GetxController {
         barrierDismissible: false,
       );
 
-      // Security check: Rate limiting for location requests
       if (lastLocationUpdate != null) {
         final timeSinceLastUpdate =
             DateTime.now().difference(lastLocationUpdate!).inSeconds;
         if (timeSinceLastUpdate < minLocationUpdateInterval) {
-          Get.back(); // Close loading dialog
+          Get.back();
           Get.snackbar(
             "Terlalu Cepat",
             "Harap tunggu beberapa detik sebelum mencoba lagi",
@@ -110,47 +110,54 @@ class PageIndexController extends GetxController {
         }
       }
 
-      // Get current position with security checks
       Map<String, dynamic> dataResponse = await _determinePositionSecure();
 
-      // Close loading dialog
       Get.back();
 
       if (dataResponse["error"] != true) {
         Position position = dataResponse["position"];
         bool isMocked = dataResponse["isMocked"] ?? false;
 
-        // Security: Check if location is mocked/fake
         if (isMocked) {
+          suspiciousAttempts++;
+
+          if (suspiciousAttempts >= maxSuspiciousAttempts) {
+            _showErrorNotification(
+              "Terlalu Banyak Percobaan",
+              "Terdeteksi terlalu banyak percobaan menggunakan lokasi palsu. Akun Anda akan ditinjau oleh admin.",
+            );
+            // Log suspicious activity
+            await _logSuspiciousActivity(position);
+            suspiciousAttempts = 0;
+            return;
+          }
+
           _showErrorNotification(
             "Lokasi Tidak Valid",
-            "Terdeteksi penggunaan lokasi palsu. Mohon gunakan lokasi asli.",
+            "Terdeteksi penggunaan lokasi palsu. Mohon gunakan lokasi asli.\n\nPercobaan: $suspiciousAttempts/$maxSuspiciousAttempts",
           );
           return;
         }
 
-        // Update last location timestamp
+        // Reset suspicious attempts on success
+        suspiciousAttempts = 0;
         lastLocationUpdate = DateTime.now();
+        lastPosition = position;
 
-        // GeoCoding - Coordinates to Address
         List<Placemark> placemarks = await placemarkFromCoordinates(
           position.latitude,
           position.longitude,
         );
-        String address = " ${placemarks[0].street},"
-            "${placemarks[0].subLocality},"
-            "${placemarks[0].locality}";
+        String address = " ${placemarks[0].street ?? ''},"
+            "${placemarks[0].subLocality ?? ''},"
+            "${placemarks[0].locality ?? ''}";
 
-        // Update user position in database
         await updatePosition(position, address);
-
-        // Check if user is in office and process attendance
         await checkPresenceInOffice(position, address);
       } else {
         Get.snackbar("Terjadi Kesalahan", dataResponse["message"]);
       }
     } catch (e) {
-      // Close loading dialog if still open
       if (Get.isDialogOpen ?? false) {
         Get.back();
       }
@@ -163,20 +170,71 @@ class PageIndexController extends GetxController {
         colorText: Colors.white,
       );
     } finally {
-      // Reset processing flag after a short delay
       await Future.delayed(const Duration(milliseconds: 500));
       isProcessingAttendance.value = false;
     }
   }
 
-  // Check if user is near any office location
+  Future<void> _logSuspiciousActivity(Position position) async {
+    try {
+      String uid = auth.currentUser!.uid;
+      await firestore
+          .collection("pegawai")
+          .doc(uid)
+          .collection("suspicious_activities")
+          .add({
+        "timestamp": FieldValue.serverTimestamp(),
+        "type": "mock_location_attempt",
+        "position": {
+          "lat": position.latitude,
+          "long": position.longitude,
+          "accuracy": position.accuracy,
+          "isMocked": position.isMocked,
+          "speed": position.speed,
+          "altitude": position.altitude,
+        },
+        "deviceInfo": await _getDeviceInfo(),
+      });
+    } catch (e) {
+      // Logging failed, continue
+    }
+  }
+
+  Future<Map<String, dynamic>> _getDeviceInfo() async {
+    try {
+      DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
+      if (Platform.isAndroid) {
+        AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
+        return {
+          "platform": "Android",
+          "model": androidInfo.model,
+          "manufacturer": androidInfo.manufacturer,
+          "version": androidInfo.version.sdkInt,
+          "isPhysicalDevice": androidInfo.isPhysicalDevice,
+          "androidId": androidInfo.id,
+        };
+      } else if (Platform.isIOS) {
+        IosDeviceInfo iosInfo = await deviceInfo.iosInfo;
+        return {
+          "platform": "iOS",
+          "model": iosInfo.model,
+          "name": iosInfo.name,
+          "systemVersion": iosInfo.systemVersion,
+          "isPhysicalDevice": iosInfo.isPhysicalDevice,
+          "identifierForVendor": iosInfo.identifierForVendor,
+        };
+      }
+    } catch (e) {
+      // Device info failed
+    }
+    return {"platform": "unknown"};
+  }
+
   Future<void> checkPresenceInOffice(Position position, String address) async {
-    // Initialize variables to track closest office and distance
     String closestOfficeName = "";
     double shortestDistance = double.infinity;
     bool isInRange = false;
 
-    // Check distance to each office location
     for (var office in officeLocations) {
       double distance = Geolocator.distanceBetween(
         office["lat"],
@@ -185,20 +243,17 @@ class PageIndexController extends GetxController {
         position.longitude,
       );
 
-      // Keep track of the closest office
       if (distance < shortestDistance) {
         shortestDistance = distance;
         closestOfficeName = office["name"];
       }
 
-      // If within radius of any office, mark as in range
       if (distance <= officeRadius) {
         isInRange = true;
         break;
       }
     }
 
-    // Proceed with attendance
     await presensi(
       position,
       address,
@@ -208,7 +263,6 @@ class PageIndexController extends GetxController {
     );
   }
 
-  // Presensi with improved modals
   Future<void> presensi(
     Position position,
     String address,
@@ -226,8 +280,8 @@ class PageIndexController extends GetxController {
 
       String status = isInRange ? "Di dalam Area" : "Di luar Area";
       String locationInfo = isInRange
-          ? "📍 $officeName\n📏 ${distance.toStringAsFixed(0)} meter dari kantor"
-          : "⚠️ Anda berada ${distance.toStringAsFixed(0)} meter dari $officeName";
+          ? "$officeName\n ${distance.toStringAsFixed(0)} meter dari kantor"
+          : "Anda berada ${distance.toStringAsFixed(0)} meter dari $officeName";
 
       if (isInRange) {
         DocumentSnapshot<Map<String, dynamic>> todayDoc =
@@ -242,13 +296,12 @@ class PageIndexController extends GetxController {
               "Anda telah melakukan absen masuk dan keluar hari ini.",
             );
           } else if (dataPresenceToday?["masuk"] != null) {
-            // Check out
             await _showAttendanceDialog(
               title: "Absen Keluar",
               message: "Konfirmasi absen keluar sekarang?\n\n$locationInfo",
               isCheckIn: false,
               onConfirm: () async {
-                Get.back(); // Close dialog
+                Get.back();
 
                 await colPresence.doc(todayDocID).update({
                   "keluar": {
@@ -272,13 +325,12 @@ class PageIndexController extends GetxController {
             );
           }
         } else {
-          // Check in
           await _showAttendanceDialog(
             title: "Absen Masuk",
             message: "Konfirmasi absen masuk sekarang?\n\n$locationInfo",
             isCheckIn: true,
             onConfirm: () async {
-              Get.back(); // Close dialog
+              Get.back();
 
               await colPresence.doc(todayDocID).set({
                 "date": now.toIso8601String(),
@@ -317,7 +369,6 @@ class PageIndexController extends GetxController {
     }
   }
 
-  // Modern attendance dialog with better design
   Future<void> _showAttendanceDialog({
     required String title,
     required String message,
@@ -338,7 +389,6 @@ class PageIndexController extends GetxController {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Icon
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -354,7 +404,6 @@ class PageIndexController extends GetxController {
                 ),
               ),
               const SizedBox(height: 20),
-              // Title
               Text(
                 title,
                 style: const TextStyle(
@@ -364,7 +413,6 @@ class PageIndexController extends GetxController {
                 ),
               ),
               const SizedBox(height: 12),
-              // Message
               Text(
                 message,
                 textAlign: TextAlign.center,
@@ -375,7 +423,6 @@ class PageIndexController extends GetxController {
                 ),
               ),
               const SizedBox(height: 24),
-              // Buttons
               Row(
                 children: [
                   Expanded(
@@ -430,7 +477,6 @@ class PageIndexController extends GetxController {
     );
   }
 
-  // Success notification with animation
   void _showSuccessNotification(String message, bool isCheckIn) {
     Get.dialog(
       Dialog(
@@ -445,7 +491,6 @@ class PageIndexController extends GetxController {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Animated checkmark
               TweenAnimationBuilder<double>(
                 tween: Tween(begin: 0.0, end: 1.0),
                 duration: const Duration(milliseconds: 600),
@@ -516,7 +561,6 @@ class PageIndexController extends GetxController {
       barrierDismissible: false,
     );
 
-    // Auto close after 2 seconds
     Future.delayed(const Duration(seconds: 2), () {
       if (Get.isDialogOpen ?? false) {
         Get.back();
@@ -524,7 +568,6 @@ class PageIndexController extends GetxController {
     });
   }
 
-  // Error notification
   void _showErrorNotification(String title, String message) {
     Get.dialog(
       Dialog(
@@ -601,7 +644,6 @@ class PageIndexController extends GetxController {
     );
   }
 
-  // Update Position to Firebase with batch write for better performance
   Future<void> updatePosition(Position position, String address) async {
     try {
       String uid = auth.currentUser!.uid;
@@ -615,78 +657,231 @@ class PageIndexController extends GetxController {
         "address": address,
       });
     } catch (e) {
-      // Log error but don't block attendance process
-      print("Error updating position: $e");
-    }
-  }
-}
-
-// Enhanced Location Permission with Security Checks
-Future<Map<String, dynamic>> _determinePositionSecure() async {
-  bool serviceEnabled;
-  LocationPermission permission;
-
-  // Test if location services are enabled
-  serviceEnabled = await Geolocator.isLocationServiceEnabled();
-  if (!serviceEnabled) {
-    return {
-      "message": "GPS tidak tersedia. Mohon aktifkan lokasi.",
-      "error": true
-    };
-  }
-
-  permission = await Geolocator.checkPermission();
-  if (permission == LocationPermission.denied) {
-    permission = await Geolocator.requestPermission();
-    if (permission == LocationPermission.denied) {
-      return {"message": "Izinkan GPS untuk melanjutkan", "error": true};
+      // Position update failed, don't block attendance
     }
   }
 
-  if (permission == LocationPermission.deniedForever) {
-    return {
-      "message": "Akses penggunaan GPS ditolak secara permanen. "
-          "Mohon aktifkan di pengaturan aplikasi.",
-      "error": true
-    };
-  }
+  // Enhanced Location Security using only Geolocator and device_info_plus
+  Future<Map<String, dynamic>> _determinePositionSecure() async {
+    bool serviceEnabled;
+    LocationPermission permission;
 
-  try {
-    // Get position with high accuracy and timeout
-    Position position = await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 0,
-        timeLimit: Duration(seconds: 10), // Add timeout
-      ),
-    ).timeout(
-      const Duration(seconds: 15),
-      onTimeout: () {
-        throw Exception("Timeout mendapatkan lokasi");
-      },
-    );
-
-    // Security: Check if location is mocked
-    bool isMocked = position.isMocked;
-
-    // Additional security: Check accuracy
-    // If accuracy is too low, it might be suspicious
-    if (position.accuracy > 100) {
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
       return {
-        "message":
-            "Akurasi lokasi terlalu rendah (${position.accuracy.toStringAsFixed(0)}m). "
-                "Mohon pastikan GPS aktif dan sinyal baik.",
+        "message": "GPS tidak tersedia. Mohon aktifkan lokasi.",
         "error": true
       };
     }
 
-    return {
-      "position": position,
-      "isMocked": isMocked,
-      "message": "Berhasil mendapatkan lokasi device",
-      "error": false
-    };
-  } catch (e) {
-    return {"message": "Gagal mendapatkan lokasi: $e", "error": true};
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        return {"message": "Izinkan GPS untuk melanjutkan", "error": true};
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      return {
+        "message": "Akses penggunaan GPS ditolak secara permanen. "
+            "Mohon aktifkan di pengaturan aplikasi.",
+        "error": true
+      };
+    }
+
+    try {
+      // SECURITY CHECK 1: Check if running on emulator
+      try {
+        DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
+        bool isPhysicalDevice = true;
+
+        if (Platform.isAndroid) {
+          AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
+          isPhysicalDevice = androidInfo.isPhysicalDevice;
+
+          // Additional check for common emulator indicators
+          if (!isPhysicalDevice ||
+              androidInfo.model.toLowerCase().contains('sdk') ||
+              androidInfo.product.toLowerCase().contains('sdk') ||
+              androidInfo.fingerprint.toLowerCase().contains('generic') ||
+              (androidInfo.manufacturer.toLowerCase() == 'google' &&
+                  androidInfo.model.toLowerCase().contains('emulator'))) {
+            return {
+              "message": "Absensi tidak dapat dilakukan dari emulator. "
+                  "Mohon gunakan perangkat fisik.",
+              "error": true
+            };
+          }
+        } else if (Platform.isIOS) {
+          IosDeviceInfo iosInfo = await deviceInfo.iosInfo;
+          isPhysicalDevice = iosInfo.isPhysicalDevice;
+
+          if (!isPhysicalDevice) {
+            return {
+              "message": "Absensi tidak dapat dilakukan dari simulator. "
+                  "Mohon gunakan perangkat fisik.",
+              "error": true
+            };
+          }
+        }
+      } catch (e) {
+        // Device check failed, continue without blocking
+      }
+
+      // SECURITY CHECK 2: Get multiple position samples for validation
+      List<Position> positions = [];
+
+      for (int i = 0; i < 3; i++) {
+        try {
+          Position pos = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.best,
+              distanceFilter: 0,
+              timeLimit: Duration(seconds: 5),
+            ),
+          );
+          positions.add(pos);
+
+          if (i < 2) {
+            await Future.delayed(const Duration(milliseconds: 500));
+          }
+        } catch (e) {
+          // Failed to get position, continue with what we have
+          break;
+        }
+      }
+
+      if (positions.isEmpty) {
+        return {
+          "message": "Gagal mendapatkan lokasi. Pastikan GPS aktif.",
+          "error": true
+        };
+      }
+
+      Position position = positions.last;
+
+      // SECURITY CHECK 3: Built-in mock detection
+      bool isMocked = position.isMocked;
+
+      // SECURITY CHECK 4: Validate position consistency
+      if (positions.length >= 2) {
+        double maxDistance = 0;
+        for (int i = 0; i < positions.length - 1; i++) {
+          double distance = Geolocator.distanceBetween(
+            positions[i].latitude,
+            positions[i].longitude,
+            positions[i + 1].latitude,
+            positions[i + 1].longitude,
+          );
+          if (distance > maxDistance) {
+            maxDistance = distance;
+          }
+        }
+
+        // If positions vary by more than 100 meters in 1 second, suspicious
+        if (maxDistance > 100) {
+          return {
+            "message":
+                "Lokasi berubah terlalu cepat (${maxDistance.toStringAsFixed(0)}m). "
+                    "Terdeteksi potensi manipulasi lokasi.",
+            "error": true,
+            "isMocked": true
+          };
+        }
+      }
+
+      // SECURITY CHECK 5: Compare with last known position
+      if (lastPosition != null && lastLocationUpdate != null) {
+        final timeDiff =
+            DateTime.now().difference(lastLocationUpdate!).inSeconds;
+        final distance = Geolocator.distanceBetween(
+          lastPosition!.latitude,
+          lastPosition!.longitude,
+          position.latitude,
+          position.longitude,
+        );
+
+        // Calculate maximum possible distance based on time (assuming car speed)
+        final maxPossibleDistance = timeDiff * 30; // 30 m/s = ~108 km/h
+
+        if (distance > maxPossibleDistance && timeDiff < 300) {
+          return {
+            "message":
+                "Jarak perpindahan tidak wajar (${distance.toStringAsFixed(0)}m dalam ${timeDiff}s). "
+                    "Terdeteksi potensi lokasi palsu.",
+            "error": true,
+            "isMocked": true
+          };
+        }
+      }
+
+      // SECURITY CHECK 6: Accuracy validation
+      if (position.accuracy > 50) {
+        return {
+          "message":
+              "Akurasi lokasi terlalu rendah (${position.accuracy.toStringAsFixed(0)}m). "
+                  "Mohon pastikan GPS aktif dan sinyal baik. "
+                  "Coba pindah ke area terbuka.",
+          "error": true
+        };
+      }
+
+      // SECURITY CHECK 7: Speed check (detect unnatural movement)
+      if (position.speed > 50) {
+        return {
+          "message":
+              "Kecepatan pergerakan tidak wajar terdeteksi (${position.speed.toStringAsFixed(1)} m/s). "
+                  "Mohon tunggu beberapa saat dan coba lagi saat tidak bergerak.",
+          "error": true
+        };
+      }
+
+      // SECURITY CHECK 8: Altitude check (detect unrealistic altitude)
+      if (position.altitude < -500 || position.altitude > 10000) {
+        return {
+          "message":
+              "Data lokasi tidak valid. Altitude: ${position.altitude.toStringAsFixed(0)}m. "
+                  "Mohon restart GPS Anda.",
+          "error": true
+        };
+      }
+
+      // SECURITY CHECK 9: Check for suspiciously perfect accuracy
+      if (position.accuracy < 1.0) {
+        return {
+          "message":
+              "Akurasi lokasi terlalu sempurna (${position.accuracy.toStringAsFixed(2)}m). "
+                  "Ini mungkin indikasi fake GPS. Mohon tunggu hingga GPS stabil.",
+          "error": true,
+          "isMocked": true
+        };
+      }
+
+      // SECURITY CHECK 10: Final mock validation
+      if (isMocked) {
+        return {
+          "message": "Terdeteksi penggunaan aplikasi fake GPS/mock location. "
+              "Mohon nonaktifkan aplikasi fake GPS dan gunakan lokasi sebenarnya.",
+          "error": true,
+          "isMocked": true
+        };
+      }
+
+      return {
+        "position": position,
+        "isMocked": false,
+        "message": "Berhasil mendapatkan lokasi device",
+        "error": false
+      };
+    } catch (e) {
+      return {"message": "Gagal mendapatkan lokasi: $e", "error": true};
+    }
+  }
+
+  @override
+  void onClose() {
+    // Clean up if needed
+    super.onClose();
   }
 }

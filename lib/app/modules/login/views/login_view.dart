@@ -2,191 +2,454 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:fineer/components/textfield.dart';
 import '../controllers/login_controller.dart';
-import 'package:flutter_animate/flutter_animate.dart'; // For animations
 
 class LoginView extends GetView<LoginController> {
   const LoginView({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // Get screen size for responsive layout
     final size = MediaQuery.of(context).size;
-    final paddingHorizontal = size.width * 0.08;
 
     return Scaffold(
       body: Container(
         height: size.height,
         width: double.infinity,
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              Color.fromARGB(255, 55, 130, 236),
-              Color.fromARGB(255, 20, 71, 143),
+              Color(0xFF3B82F6),
+              Color(0xFF1E40AF),
             ],
           ),
         ),
         child: SafeArea(
-          child: Padding(
-            padding: EdgeInsets.symmetric(
-                horizontal: paddingHorizontal, vertical: 5),
-            child: SingleChildScrollView(
-              physics: BouncingScrollPhysics(),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  minHeight: size.height - 20, // Account for vertical padding
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Logo position
-                    SizedBox(height: size.height * 0.08),
+          child: Obx(() {
+            // Show loading state
+            if (controller.isCheckingBiometric.value) {
+              return _buildLoadingState(size);
+            }
 
-                    // App title section with animations
-                    Align(
-                      alignment: Alignment.center,
-                      child: Column(
-                        children: [
-                          Image.asset(
-                            'lib/assets/appLogo.webp',
-                            height: size.height * 0.18,
-                            errorBuilder: (context, error, stackTrace) {
-                              debugPrint("Error loading logo: $error");
-                              return const SizedBox.shrink();
-                            },
-                          ).animate().fadeIn(delay: 200.ms, duration: 500.ms),
-                        ],
-                      ),
-                    ),
+            // Show biometric prompt if available and password form not shown
+            if (controller.canUseBiometric.value &&
+                !controller.showPasswordLogin.value) {
+              return _buildBiometricPrompt(size);
+            }
 
-                    // Flexible spacer
-                    SizedBox(height: size.height * 0.1),
-
-                    // Form section - animates from bottom
-                    Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: size.width * 0.02,
-                        vertical: size.height * 0.015,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.transparent,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Email Field
-                          MyTextField(
-                            controller: controller.emailC,
-                            hintText: 'Masukan Email',
-                            obscureText: false,
-                            labelText: 'Email',
-                          ),
-                          SizedBox(height: size.height * 0.015),
-
-                          // Password Field
-                          MyTextField(
-                            controller: controller.passC,
-                            hintText: 'Masukan Password',
-                            obscureText: true,
-                            labelText: 'Password',
-                          ),
-                        ],
-                      ),
-                    ).animate().fadeIn(delay: 600.ms).slideY(
-                          begin: 0.2,
-                          end: 0,
-                          curve: Curves.easeOutQuad,
-                          duration: 600.ms,
-                        ),
-
-                    SizedBox(height: size.height * 0.06),
-
-                    // Login Button with animation
-                    Center(
-                      child: SizedBox(
-                        width: min(size.width * 0.7, 250),
-                        height: size.height * 0.06,
-                        child: Obx(
-                          () => ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              elevation: 2,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(32),
-                              ),
-                              backgroundColor: Colors.yellow,
-                            ),
-                            onPressed: controller.isLoading.isFalse
-                                ? () async {
-                                    try {
-                                      await controller.login();
-                                    } catch (e) {
-                                      debugPrint("Login error: $e");
-                                      Get.snackbar('Login Error',
-                                          'Your Login process is failed');
-                                    }
-                                  }
-                                : null,
-                            child: controller.isLoading.isFalse
-                                ? const Text(
-                                    'Sign In',
-                                    style: TextStyle(
-                                      color: Color.fromARGB(171, 0, 0, 0),
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 18,
-                                    ),
-                                  )
-                                : const SizedBox(
-                                    height: 22,
-                                    width: 22,
-                                    child: CircularProgressIndicator(
-                                      color: Colors.white,
-                                      strokeWidth: 2.5,
-                                    ),
-                                  ),
-                          ),
-                        ),
-                      ),
-                    ).animate().fadeIn(delay: 800.ms).scale(
-                          begin: const Offset(0.95, 0.95),
-                          end: const Offset(1, 1),
-                          curve: Curves.easeOutQuad,
-                          duration: 500.ms,
-                        ),
-                    SizedBox(
-                      height: 16,
-                    ),
-
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'Provided by',
-                          style: TextStyle(fontSize: 8, color: Colors.black54),
-                        ),
-                        Image.asset(
-                          'lib/assets/tripleS-transparent-white.webp',
-                          height: size.height * 0.04,
-                          errorBuilder: (context, error, stackTrace) {
-                            return const SizedBox.shrink();
-                          },
-                        ),
-                      ],
-                    ),
-
-                    // Bottom spacing
-                    SizedBox(height: size.height * 0.05),
-                  ],
-                ),
-              ),
-            ),
-          ),
+            // Show password login form
+            return _buildPasswordForm(size);
+          }),
         ),
       ),
     );
   }
-}
 
-// Helper function to get minimum of two values
-double min(double a, double b) => a < b ? a : b;
+  Widget _buildLoadingState(Size size) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Image.asset(
+            'lib/assets/appLogo.webp',
+            height: size.height * 0.15,
+            errorBuilder: (context, error, stackTrace) {
+              return const Icon(Icons.business, size: 80, color: Colors.white);
+            },
+          ),
+          const SizedBox(height: 40),
+          const CircularProgressIndicator(
+            color: Colors.white,
+            strokeWidth: 3,
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'Checking biometric...',
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 14,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBiometricPrompt(Size size) {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: size.width * 0.08),
+        child: Column(
+          children: [
+            SizedBox(height: size.height * 0.12),
+
+            // Logo
+            Image.asset(
+              'lib/assets/appLogo.webp',
+              height: size.height * 0.15,
+              errorBuilder: (context, error, stackTrace) {
+                return const Icon(Icons.business,
+                    size: 80, color: Colors.white);
+              },
+            ),
+
+            SizedBox(height: size.height * 0.08),
+
+            // Biometric prompt card
+            Container(
+              padding: const EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.1),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  // Biometric icon
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3B82F6).withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      controller.biometricType.value == 'Face ID'
+                          ? Icons.face
+                          : Icons.fingerprint,
+                      size: 40,
+                      color: const Color(0xFF3B82F6),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Title
+                  Text(
+                    'Welcome Back!',
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1E293B),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // User email
+                  Obx(() => Text(
+                        controller.lastBiometricUser.value,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Color(0xFF64748B),
+                        ),
+                      )),
+                  const SizedBox(height: 24),
+
+                  // Biometric button
+                  Obx(() => SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: controller.isLoading.value
+                              ? null
+                              : () => controller.loginWithBiometric(),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF3B82F6),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: controller.isLoading.value
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white),
+                                  ),
+                                )
+                              : Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      controller.biometricType.value ==
+                                              'Face ID'
+                                          ? Icons.face
+                                          : Icons.fingerprint,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Obx(() => Text(
+                                          'Login with ${controller.biometricType.value}',
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        )),
+                                  ],
+                                ),
+                        ),
+                      )),
+                  const SizedBox(height: 16),
+
+                  // Use password instead
+                  TextButton(
+                    onPressed: () => controller.showPasswordForm(),
+                    child: const Text(
+                      'Use password instead',
+                      style: TextStyle(
+                        color: Color(0xFF64748B),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            SizedBox(height: size.height * 0.08),
+
+            // Footer
+            _buildFooter(size),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPasswordForm(Size size) {
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: size.width * 0.08),
+        child: Column(
+          children: [
+            SizedBox(height: size.height * 0.08),
+
+            // Logo
+            Image.asset(
+              'lib/assets/appLogo.webp',
+              height: size.height * 0.15,
+              errorBuilder: (context, error, stackTrace) {
+                return const Icon(Icons.business,
+                    size: 80, color: Colors.white);
+              },
+            ),
+
+            SizedBox(height: size.height * 0.06),
+
+            // Login form card
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.1),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Title
+                  const Text(
+                    'Sign In',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1E293B),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Enter your credentials to continue',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Email Field
+                  MyTextField(
+                    controller: controller.emailC,
+                    hintText: 'Enter your email',
+                    obscureText: false,
+                    labelText: 'Email',
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Password Field
+                  MyTextField(
+                    controller: controller.passC,
+                    hintText: 'Enter your password',
+                    obscureText: true,
+                    labelText: 'Password',
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Login Button
+                  Obx(() => SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: controller.isLoading.value
+                              ? null
+                              : () => controller.login(),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFFBBF24),
+                            foregroundColor: const Color(0xFF1E293B),
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: controller.isLoading.value
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                        Color(0xFF1E293B)),
+                                  ),
+                                )
+                              : const Text(
+                                  'Sign In',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                        ),
+                      )),
+
+                  // Biometric option
+                  Obx(() {
+                    if (controller.canUseBiometric.value) {
+                      return Column(
+                        children: [
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                  child: Divider(color: Colors.grey.shade300)),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 16),
+                                child: Text(
+                                  'OR',
+                                  style: TextStyle(
+                                    color: Colors.grey.shade500,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                  child: Divider(color: Colors.grey.shade300)),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton(
+                              onPressed: () => controller.retryBiometric(),
+                              style: OutlinedButton.styleFrom(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 16),
+                                side:
+                                    const BorderSide(color: Color(0xFF3B82F6)),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    controller.biometricType.value == 'Face ID'
+                                        ? Icons.face
+                                        : Icons.fingerprint,
+                                    size: 20,
+                                    color: const Color(0xFF3B82F6),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Obx(() => Text(
+                                        'Use ${controller.biometricType.value}',
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF3B82F6),
+                                        ),
+                                      )),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  }),
+                ],
+              ),
+            ),
+
+            SizedBox(height: size.height * 0.04),
+
+            // Footer
+            _buildFooter(size),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFooter(Size size) {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              'Provided by',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.white70,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Image.asset(
+              'lib/assets/tripleS-transparent-white.webp',
+              height: size.height * 0.04,
+              errorBuilder: (context, error, stackTrace) {
+                return const Text(
+                  'Triple S',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+      ],
+    );
+  }
+}

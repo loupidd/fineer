@@ -6,6 +6,7 @@ import 'package:get/get.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:logger/logger.dart';
+import 'dart:convert';
 
 class BiometricController extends GetxController {
   final LocalAuthentication _localAuth = LocalAuthentication();
@@ -13,6 +14,11 @@ class BiometricController extends GetxController {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final Logger _logger = Logger();
+
+  // Secure storage keys - MUST match LoginController
+  static const String _keyBiometricEmail = 'biometric_email';
+  static const String _keyBiometricPassword = 'biometric_password';
+  static const String _keyBiometricUid = 'biometric_uid';
 
   // Observable states
   RxBool isBiometricAvailable = false.obs;
@@ -38,7 +44,9 @@ class BiometricController extends GetxController {
 
       if (isBiometricAvailable.value) {
         availableBiometrics.value = await _localAuth.getAvailableBiometrics();
-        _logger.d('Available biometrics: $availableBiometrics');
+        _logger.d('Available biometrics: ${availableBiometrics.value}');
+      } else {
+        _logger.w('Biometric not available on this device');
       }
     } catch (e) {
       _logger.e('Error checking biometric support', error: e);
@@ -52,7 +60,10 @@ class BiometricController extends GetxController {
   Future<void> checkBiometricStatus() async {
     try {
       String? uid = _auth.currentUser?.uid;
-      if (uid == null) return;
+      if (uid == null) {
+        _logger.w('No authenticated user');
+        return;
+      }
 
       // Check in Firestore
       DocumentSnapshot userDoc =
@@ -61,17 +72,35 @@ class BiometricController extends GetxController {
       if (userDoc.exists) {
         Map<String, dynamic>? data = userDoc.data() as Map<String, dynamic>?;
         isBiometricEnabled.value = data?['biometricEnabled'] ?? false;
+        _logger
+            .i('Biometric enabled in Firestore: ${isBiometricEnabled.value}');
       }
 
-      // Also check secure storage for backup
-      String? biometricStatus =
-          await _secureStorage.read(key: 'biometric_$uid');
-      if (biometricStatus == 'enabled') {
-        isBiometricEnabled.value = true;
+      // Verify credentials are stored
+      if (isBiometricEnabled.value) {
+        final hasCredentials = await _hasStoredCredentials();
+        if (!hasCredentials) {
+          _logger.w('Biometric enabled but no stored credentials found');
+          isBiometricEnabled.value = false;
+        }
       }
     } catch (e) {
       _logger.e('Error checking biometric status', error: e);
       isBiometricEnabled.value = false;
+    }
+  }
+
+  // Check if credentials are stored
+  Future<bool> _hasStoredCredentials() async {
+    try {
+      final email = await _secureStorage.read(key: _keyBiometricEmail);
+      final password = await _secureStorage.read(key: _keyBiometricPassword);
+      final uid = await _secureStorage.read(key: _keyBiometricUid);
+
+      return email != null && password != null && uid != null;
+    } catch (e) {
+      _logger.e('Error checking stored credentials', error: e);
+      return false;
     }
   }
 
@@ -106,58 +135,235 @@ class BiometricController extends GetxController {
     try {
       isProcessing.value = true;
 
-      // First authenticate with biometric
-      bool authenticated = await authenticateWithBiometric(
-        reason: 'Please authenticate to enable biometric login',
-      );
-
-      if (!authenticated) {
+      String? uid = _auth.currentUser?.uid;
+      if (uid == null) {
         Get.snackbar(
-          'Authentication Failed',
-          'Biometric authentication was not successful',
+          'Error',
+          'No authenticated user found',
           snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red,
+          backgroundColor: const Color(0xFFEF4444),
           colorText: Colors.white,
+          margin: const EdgeInsets.all(16),
+          borderRadius: 12,
         );
         return false;
       }
 
-      // Save to Firestore
-      String? uid = _auth.currentUser?.uid;
-      if (uid != null) {
-        await _firestore.collection('pegawai').doc(uid).update({
-          'biometricEnabled': true,
-          'biometricEnabledAt': FieldValue.serverTimestamp(),
-        });
-
-        // Save to secure storage as backup
-        await _secureStorage.write(key: 'biometric_$uid', value: 'enabled');
-
-        isBiometricEnabled.value = true;
-
+      // Get current user email
+      String? email = _auth.currentUser?.email;
+      if (email == null) {
         Get.snackbar(
-          'Success',
-          'Biometric login has been enabled',
+          'Error',
+          'User email not found',
           snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.green,
+          backgroundColor: const Color(0xFFEF4444),
           colorText: Colors.white,
-          icon: Icon(getBiometricIcon(), color: Colors.white),
+          margin: const EdgeInsets.all(16),
+          borderRadius: 12,
         );
-        return true;
+        return false;
       }
-      return false;
+
+      // Request password from user
+      final password = await _requestPassword();
+      if (password == null) {
+        _logger.i('User cancelled password entry');
+        return false;
+      }
+
+      // Verify password by attempting to reauthenticate
+      try {
+        final credential = EmailAuthProvider.credential(
+          email: email,
+          password: password,
+        );
+        await _auth.currentUser!.reauthenticateWithCredential(credential);
+        _logger.i('Password verified successfully');
+      } on FirebaseAuthException catch (e) {
+        _logger.e('Password verification failed: ${e.code}');
+        Get.snackbar(
+          'Incorrect Password',
+          'The password you entered is incorrect',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: const Color(0xFFEF4444),
+          colorText: Colors.white,
+          margin: const EdgeInsets.all(16),
+          borderRadius: 12,
+        );
+        return false;
+      }
+
+      // Authenticate with biometric
+      bool authenticated = await authenticateWithBiometric(
+        reason: 'Authenticate to enable ${getBiometricTypeName()} login',
+      );
+
+      if (!authenticated) {
+        _logger.w('Biometric authentication failed or cancelled');
+        return false;
+      }
+
+      // Store credentials securely
+      await _storeCredentialsSecurely(email, password, uid);
+
+      // Save to Firestore
+      await _firestore.collection('pegawai').doc(uid).update({
+        'biometricEnabled': true,
+        'biometricEnabledAt': FieldValue.serverTimestamp(),
+        'biometricType': getBiometricTypeName(),
+      });
+
+      isBiometricEnabled.value = true;
+
+      _logger.i('Biometric successfully enabled');
+
+      Get.snackbar(
+        'Success!',
+        '${getBiometricTypeName()} login has been enabled',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: const Color(0xFF10B981),
+        colorText: Colors.white,
+        duration: const Duration(seconds: 3),
+        margin: const EdgeInsets.all(16),
+        borderRadius: 12,
+        icon: Icon(getBiometricIcon(), color: Colors.white),
+      );
+      return true;
     } catch (e) {
       _logger.e('Error enabling biometric', error: e);
       Get.snackbar(
         'Error',
-        'Failed to enable biometric login: $e',
+        'Failed to enable biometric login',
         snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red,
+        backgroundColor: const Color(0xFFEF4444),
         colorText: Colors.white,
+        margin: const EdgeInsets.all(16),
+        borderRadius: 12,
       );
       return false;
     } finally {
       isProcessing.value = false;
+    }
+  }
+
+  // Request password from user
+  Future<String?> _requestPassword() async {
+    final TextEditingController passwordController = TextEditingController();
+
+    return await Get.dialog<String>(
+      AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: const Text(
+          'Confirm Your Password',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF1E293B),
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Please enter your password to enable biometric login',
+              style: TextStyle(
+                fontSize: 14,
+                color: Color(0xFF64748B),
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: passwordController,
+              obscureText: true,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: 'Password',
+                hintText: 'Enter your password',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                prefixIcon: const Icon(Icons.lock_outline),
+              ),
+              onSubmitted: (value) {
+                if (value.isNotEmpty) {
+                  Get.back(result: value);
+                }
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(
+                color: Color(0xFF64748B),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (passwordController.text.isNotEmpty) {
+                Get.back(result: passwordController.text);
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF3B82F6),
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: const Text(
+              'Continue',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+      barrierDismissible: false,
+    );
+  }
+
+  // Store credentials securely (same as LoginController)
+  Future<void> _storeCredentialsSecurely(
+      String email, String password, String uid) async {
+    try {
+      final encodedPassword = base64.encode(utf8.encode(password));
+
+      await Future.wait([
+        _secureStorage.write(key: _keyBiometricEmail, value: email),
+        _secureStorage.write(
+            key: _keyBiometricPassword, value: encodedPassword),
+        _secureStorage.write(key: _keyBiometricUid, value: uid),
+      ]);
+
+      _logger.i('Credentials stored securely for: $email');
+    } catch (e) {
+      _logger.e('Error storing credentials', error: e);
+      rethrow;
+    }
+  }
+
+  // Clear stored credentials (same as LoginController)
+  Future<void> _clearStoredCredentials() async {
+    try {
+      await Future.wait([
+        _secureStorage.delete(key: _keyBiometricEmail),
+        _secureStorage.delete(key: _keyBiometricPassword),
+        _secureStorage.delete(key: _keyBiometricUid),
+      ]);
+
+      _logger.i('Stored credentials cleared');
+    } catch (e) {
+      _logger.e('Error clearing credentials', error: e);
     }
   }
 
@@ -175,18 +381,22 @@ class BiometricController extends GetxController {
           'biometricDisabledAt': FieldValue.serverTimestamp(),
         });
 
-        // Remove from secure storage
-        await _secureStorage.delete(key: 'biometric_$uid');
+        await _clearStoredCredentials();
 
         isBiometricEnabled.value = false;
 
+        _logger.i('Biometric disabled successfully');
+
         Get.snackbar(
-          'Success',
+          'Disabled',
           'Biometric login has been disabled',
           snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.orange,
+          backgroundColor: const Color(0xFFF59E0B),
           colorText: Colors.white,
+          margin: const EdgeInsets.all(16),
+          borderRadius: 12,
         );
+
         return true;
       }
       return false;
@@ -194,10 +404,12 @@ class BiometricController extends GetxController {
       _logger.e('Error disabling biometric', error: e);
       Get.snackbar(
         'Error',
-        'Failed to disable biometric login: $e',
+        'Failed to disable biometric login',
         snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red,
+        backgroundColor: const Color(0xFFEF4444),
         colorText: Colors.white,
+        margin: const EdgeInsets.all(16),
+        borderRadius: 12,
       );
       return false;
     } finally {
@@ -213,6 +425,10 @@ class BiometricController extends GetxController {
           'Not Available',
           'Biometric authentication is not available on this device',
           snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: const Color(0xFFF59E0B),
+          colorText: Colors.white,
+          margin: const EdgeInsets.all(16),
+          borderRadius: 12,
         );
         return false;
       }
@@ -226,71 +442,50 @@ class BiometricController extends GetxController {
         ),
       );
 
+      _logger.i('Biometric authentication result: $authenticated');
       return authenticated;
     } on PlatformException catch (e) {
-      _logger.e('Biometric authentication error', error: e);
+      _logger.e('Biometric authentication error: ${e.code}', error: e);
 
       String message = 'Authentication failed';
-      if (e.code == 'NotAvailable') {
-        message = 'Biometric authentication is not available';
-      } else if (e.code == 'NotEnrolled') {
-        message = 'No biometrics enrolled on this device';
-      } else if (e.code == 'LockedOut') {
-        message = 'Too many attempts. Please try again later';
-      } else if (e.code == 'PermanentlyLockedOut') {
-        message = 'Biometric authentication is permanently locked';
+      bool shouldShowSnackbar = true;
+
+      switch (e.code) {
+        case 'NotAvailable':
+          message = 'Biometric authentication is not available';
+          break;
+        case 'NotEnrolled':
+          message = 'No biometrics enrolled on this device';
+          break;
+        case 'LockedOut':
+          message = 'Too many attempts. Please try again later';
+          break;
+        case 'PermanentlyLockedOut':
+          message = 'Biometric authentication is permanently locked';
+          break;
+        case 'AuthenticationCanceled':
+        case 'UserCancel':
+          // User cancelled, don't show error
+          shouldShowSnackbar = false;
+          break;
+        default:
+          shouldShowSnackbar = false;
       }
 
-      Get.snackbar(
-        'Authentication Error',
-        message,
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
-      );
+      if (shouldShowSnackbar) {
+        Get.snackbar(
+          'Authentication Error',
+          message,
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: const Color(0xFFEF4444),
+          colorText: Colors.white,
+          margin: const EdgeInsets.all(16),
+          borderRadius: 12,
+        );
+      }
       return false;
     } catch (e) {
       _logger.e('Unexpected error during authentication', error: e);
-      return false;
-    }
-  }
-
-  // Quick biometric login (for login screen)
-  Future<bool> quickBiometricLogin() async {
-    try {
-      String? uid = _auth.currentUser?.uid;
-      if (uid == null) return false;
-
-      bool authenticated = await authenticateWithBiometric(
-        reason: 'Authenticate to login quickly',
-      );
-
-      if (authenticated) {
-        // Verify biometric is still enabled in Firestore
-        DocumentSnapshot userDoc =
-            await _firestore.collection('pegawai').doc(uid).get();
-
-        if (userDoc.exists) {
-          Map<String, dynamic>? data = userDoc.data() as Map<String, dynamic>?;
-          bool isEnabled = data?['biometricEnabled'] ?? false;
-
-          if (!isEnabled) {
-            Get.snackbar(
-              'Biometric Disabled',
-              'Biometric login has been disabled. Please login with credentials.',
-              snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: Colors.orange,
-              colorText: Colors.white,
-            );
-            return false;
-          }
-
-          return true;
-        }
-      }
-      return false;
-    } catch (e) {
-      _logger.e('Error during quick biometric login', error: e);
       return false;
     }
   }
