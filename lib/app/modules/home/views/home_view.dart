@@ -1004,86 +1004,162 @@ class HomeView extends GetView<HomeController> {
   void _showUserOptions() {
     Get.bottomSheet(
       Container(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(24),
         decoration: const BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(
-            top: Radius.circular(20),
+            top: Radius.circular(24),
           ),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'User Options',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
               ),
             ),
             const SizedBox(height: 20),
-            InkWell(
-              onTap: () {
-                Get.offAllNamed(Routes.PROFILE);
-              },
-              child: const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Row(
-                  children: [
-                    Icon(Icons.person, color: Colors.blue),
-                    SizedBox(width: 12),
-                    Text(
-                      'View Profile',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
+            const Text(
+              'Quick Actions',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1E293B),
               ),
             ),
-            InkWell(
+            const SizedBox(height: 24),
+            _buildBottomSheetItem(
+              icon: Icons.person_outline,
+              label: 'View Profile',
+              color: const Color(0xFF3B82F6),
               onTap: () {
+                Get.back();
+                Get.toNamed(Routes.PROFILE);
+              },
+            ),
+            const SizedBox(height: 12),
+            _buildBottomSheetItem(
+              icon: Icons.fingerprint,
+              label: 'Biometric Settings',
+              color: const Color(0xFF8B5CF6),
+              onTap: () {
+                Get.back();
+                Get.toNamed(Routes.BIOMETRIC_SETUP);
+              },
+            ),
+            const SizedBox(height: 12),
+            _buildBottomSheetItem(
+              icon: Icons.logout,
+              label: 'Logout',
+              color: const Color(0xFFEF4444),
+              onTap: () {
+                Get.back();
                 Get.defaultDialog(
                   title: 'Sign Out',
+                  titleStyle: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1E293B),
+                  ),
                   middleText: 'Are you sure you want to log out?',
+                  middleTextStyle: TextStyle(
+                    color: Colors.grey.shade700,
+                  ),
+                  backgroundColor: Colors.white,
+                  radius: 16,
                   actions: [
                     TextButton(
-                      onPressed: () => {
-                        auth.signOut(),
-                        Get.offAllNamed(Routes.LOGIN),
-                      },
-                      child: const Text('Yes'),
+                      onPressed: () => Get.back(),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(
+                          color: Color(0xFF64748B),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
-                    TextButton(
-                      onPressed: () => {
-                        Get.back(),
+                    ElevatedButton(
+                      onPressed: () {
+                        auth.signOut();
+                        Get.offAllNamed(Routes.LOGIN);
                       },
-                      child: const Text('No'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFEF4444),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'Logout',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
                   ],
                 );
               },
-              child: const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Row(
-                  children: [
-                    Icon(Icons.logout, color: Colors.red),
-                    SizedBox(width: 12),
-                    Text(
-                      'Logout',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.red,
-                      ),
-                    ),
-                  ],
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+      backgroundColor: Colors.transparent,
+    );
+  }
+
+  Widget _buildBottomSheetItem({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  icon,
+                  color: color,
+                  size: 20,
                 ),
               ),
-            ),
-          ],
+              const SizedBox(width: 12),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: color,
+                ),
+              ),
+              const Spacer(),
+              Icon(
+                Icons.arrow_forward_ios,
+                size: 16,
+                color: color.withValues(alpha: 0.5),
+              ),
+            ],
+          ),
         ),
       ),
     );

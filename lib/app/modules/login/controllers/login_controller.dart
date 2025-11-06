@@ -58,8 +58,8 @@ class LoginController extends GetxController {
         _localAuth.isDeviceSupported(),
       ]);
 
-      final canCheckBiometrics = results[0] as bool;
-      final isDeviceSupported = results[1] as bool;
+      final canCheckBiometrics = results[0];
+      final isDeviceSupported = results[1];
 
       // If device doesn't support biometric at all, go straight to password
       if (!canCheckBiometrics && !isDeviceSupported) {

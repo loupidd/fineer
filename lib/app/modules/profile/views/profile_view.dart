@@ -536,7 +536,7 @@ class ProfileView extends GetView<ProfileController> {
             ],
           ),
           const SizedBox(height: 16),
-          _buildInfoItem('App Version', '3.1.0'),
+          _buildInfoItem('App Version', '2.0.0'),
           _buildInfoItem('Last Login',
               DateFormat('dd MMM yyyy, HH:mm').format(DateTime.now())),
           const SizedBox(height: 16),
@@ -616,7 +616,7 @@ class ProfileView extends GetView<ProfileController> {
     bool isSelected = false,
   }) {
     return InkWell(
-      onTap: () => _changePage(index),
+      onTap: () => changePage(index),
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -651,5 +651,17 @@ class ProfileView extends GetView<ProfileController> {
         ),
       ),
     );
+  }
+
+  void changePage(int index) {
+    pageC.changePage(index);
+    switch (index) {
+      case 0:
+        Get.offAllNamed(Routes.HOME);
+      case 1:
+        Get.offAllNamed(Routes.ALL_PRESENSI);
+      case 2:
+        Get.offAllNamed(Routes.PROFILE);
+    }
   }
 }

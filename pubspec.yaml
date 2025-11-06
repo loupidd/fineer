@@ -1,5 +1,5 @@
 name: fineer
-version: 1.0.0+1
+version: 2.0.0+12
 publish_to: none
 description: A Location Based Attendance System Mobile App
 environment:
