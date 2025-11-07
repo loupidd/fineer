@@ -65,7 +65,6 @@ class HomeView extends GetView<HomeController> {
         const SizedBox(height: 24),
         if (user["role"] == "admin") _buildAdminSection(),
         const SizedBox(height: 16),
-        if (user["role"] == "admin") _buildAdminPanel(),
         const SizedBox(height: 16),
         _buildPresenceHistoryHeader(),
         const SizedBox(height: 12),
@@ -643,76 +642,6 @@ class HomeView extends GetView<HomeController> {
     );
   }
 
-  Widget _buildAdminPanel() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color.fromARGB(255, 20, 71, 143),
-            Color.fromARGB(255, 55, 130, 236),
-          ],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withAlpha((0.3 * 255).round()),
-            spreadRadius: 1,
-            blurRadius: 5,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Monthly Report',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
-              ),
-              SizedBox(height: 8),
-              Text(
-                ' Get Your Monthly Report Here',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                ),
-              ),
-            ],
-          ),
-          Flexible(
-            child: ElevatedButton.icon(
-              onPressed: () => Get.toNamed(Routes.MONTHLY_REPORT),
-              icon: const Icon(Icons.document_scanner, color: Colors.blue),
-              label: const Text('Get'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.blue[800],
-                elevation: 0,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildPresenceHistoryHeader() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -1028,14 +957,14 @@ class HomeView extends GetView<HomeController> {
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF1E293B),
+                color: Colors.blue,
               ),
             ),
             const SizedBox(height: 24),
             _buildBottomSheetItem(
               icon: Icons.person_outline,
               label: 'View Profile',
-              color: const Color(0xFF3B82F6),
+              color: Colors.blue,
               onTap: () {
                 Get.back();
                 Get.toNamed(Routes.PROFILE);
@@ -1045,7 +974,7 @@ class HomeView extends GetView<HomeController> {
             _buildBottomSheetItem(
               icon: Icons.fingerprint,
               label: 'Biometric Settings',
-              color: const Color(0xFF8B5CF6),
+              color: Colors.deepPurple,
               onTap: () {
                 Get.back();
                 Get.toNamed(Routes.BIOMETRIC_SETUP);
@@ -1055,53 +984,10 @@ class HomeView extends GetView<HomeController> {
             _buildBottomSheetItem(
               icon: Icons.logout,
               label: 'Logout',
-              color: const Color(0xFFEF4444),
+              color: Colors.red,
               onTap: () {
                 Get.back();
-                Get.defaultDialog(
-                  title: 'Sign Out',
-                  titleStyle: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF1E293B),
-                  ),
-                  middleText: 'Are you sure you want to log out?',
-                  middleTextStyle: TextStyle(
-                    color: Colors.grey.shade700,
-                  ),
-                  backgroundColor: Colors.white,
-                  radius: 16,
-                  actions: [
-                    TextButton(
-                      onPressed: () => Get.back(),
-                      child: const Text(
-                        'Cancel',
-                        style: TextStyle(
-                          color: Color(0xFF64748B),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    ElevatedButton(
-                      onPressed: () {
-                        auth.signOut();
-                        Get.offAllNamed(Routes.LOGIN);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFEF4444),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text(
-                        'Logout',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                );
+                _showLogoutConfirmation();
               },
             ),
             const SizedBox(height: 20),
@@ -1109,6 +995,8 @@ class HomeView extends GetView<HomeController> {
         ),
       ),
       backgroundColor: Colors.transparent,
+      isDismissible: true,
+      enableDrag: true,
     );
   }
 
@@ -1122,41 +1010,46 @@ class HomeView extends GetView<HomeController> {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: color.withValues(alpha: 0.2),
+              width: 1,
+            ),
           ),
           child: Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(8),
+                  color: color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
                   icon,
                   color: color,
-                  size: 20,
+                  size: 22,
                 ),
               ),
-              const SizedBox(width: 12),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: color,
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
                 ),
               ),
-              const Spacer(),
               Icon(
                 Icons.arrow_forward_ios,
                 size: 16,
-                color: color.withValues(alpha: 0.5),
+                color: color.withValues(alpha: 0.4),
               ),
             ],
           ),
@@ -1190,4 +1083,149 @@ class HomeView extends GetView<HomeController> {
       _logger.e('Error During Attendance', error: e, stackTrace: stackTrace);
     }
   }
+}
+
+void _showLogoutConfirmation() {
+  Get.dialog(
+    Dialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.logout,
+                color: Colors.red,
+                size: 40,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Sign Out',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Colors.blue,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Are you sure you want to log out?',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 15,
+                color: Colors.grey.shade700,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Get.back(),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      side: BorderSide(
+                        color: Colors.grey.shade300,
+                        width: 1.5,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      try {
+                        // Show loading
+                        Get.back(); // Close dialog
+                        Get.dialog(
+                          const Center(
+                            child: CircularProgressIndicator(),
+                          ),
+                          barrierDismissible: false,
+                        );
+
+                        // Sign out
+                        await auth.signOut();
+
+                        // Close loading and navigate
+                        Get.back(); // Close loading
+                        Get.offAllNamed(Routes.LOGIN);
+
+                        // Show success message
+                        Get.snackbar(
+                          'Success',
+                          'You have been logged out',
+                          snackPosition: SnackPosition.BOTTOM,
+                          backgroundColor: Colors.green,
+                          colorText: Colors.white,
+                          margin: const EdgeInsets.all(16),
+                          borderRadius: 12,
+                          duration: const Duration(seconds: 2),
+                        );
+                      } catch (e) {
+                        Get.back(); // Close loading if error
+                        Get.snackbar(
+                          'Error',
+                          'Failed to sign out. Please try again.',
+                          snackPosition: SnackPosition.BOTTOM,
+                          backgroundColor: Colors.red,
+                          colorText: Colors.white,
+                          margin: const EdgeInsets.all(16),
+                          borderRadius: 12,
+                        );
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Logout',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+    barrierDismissible: true,
+  );
 }

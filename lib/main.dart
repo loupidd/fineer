@@ -1,6 +1,7 @@
 // ignore_for_file: unused_local_variable
 
 import 'package:fineer/app/controllers/page_index_controller.dart';
+import 'package:fineer/app/services/notification_service.dart'; // ADD THIS
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -14,10 +15,16 @@ import 'package:intl/date_symbol_data_local.dart';
 //  main() function
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Firebase
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await initializeDateFormatting();
 
+  // Initialize Controllers
   final pageC = Get.put(PageIndexController(), permanent: true);
+
+  // Initialize Notification Service
+  await Get.putAsync(() => NotificationService().init());
 
   runApp(const FineerApp());
 }
@@ -62,6 +69,8 @@ class FineerApp extends StatelessWidget {
       getPages: AppPages.routes,
       theme: ThemeData(
         scaffoldBackgroundColor: Colors.white,
+        primarySwatch: Colors.blue,
+        useMaterial3: true,
       ),
     );
   }

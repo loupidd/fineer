@@ -2,25 +2,30 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
 import 'package:logger/logger.dart';
+import 'package:fineer/app/services/notification_service.dart';
 
 class ProfileController extends GetxController {
   final FirebaseAuth auth = FirebaseAuth.instance;
   final FirebaseFirestore firestore = FirebaseFirestore.instance;
   final logger = Logger();
 
+  // Get notification service
+  NotificationService get notificationService =>
+      Get.find<NotificationService>();
+
   final RxBool isLoading = false.obs;
   final RxMap<String, dynamic> userData = <String, dynamic>{}.obs;
   final RxMap<String, dynamic> attendanceSummary = <String, dynamic>{}.obs;
 
-  // User preferences
-  final RxBool notificationsEnabled = true.obs;
-  final RxString appLanguage = 'English'.obs;
+  // Bind to notification service state
+  RxBool get notificationsEnabled => notificationService.isNotificationEnabled;
 
   @override
   void onInit() {
     super.onInit();
     loadUserData();
     loadAttendanceSummary();
+    loadNotificationPreference();
   }
 
   Future<void> loadUserData() async {
@@ -62,32 +67,18 @@ class ProfileController extends GetxController {
 
       int totalPresent = presenceSnapshot.docs.length;
       int lateEntries = 0;
-      double overtimeHours = 0.0;
 
-      // Calculate late entries and overtime
+      // Calculate late entries (after 8:30 AM)
       for (var doc in presenceSnapshot.docs) {
         Map<String, dynamic> data = doc.data();
 
-        // Check if entry is late (after 9:00 AM)
         if (data['masuk'] != null) {
           DateTime checkInTime = DateTime.parse(data['masuk']['date']);
           DateTime workStartTime = DateTime(
-              checkInTime.year, checkInTime.month, checkInTime.day, 9, 0, 0);
+              checkInTime.year, checkInTime.month, checkInTime.day, 8, 30, 0);
 
           if (checkInTime.isAfter(workStartTime)) {
             lateEntries++;
-          }
-        }
-
-        // Calculate overtime (if checked out after 5:00 PM)
-        if (data['keluar'] != null && data['masuk'] != null) {
-          DateTime checkOutTime = DateTime.parse(data['keluar']['date']);
-          DateTime workEndTime = DateTime(checkOutTime.year, checkOutTime.month,
-              checkOutTime.day, 17, 0, 0);
-
-          if (checkOutTime.isAfter(workEndTime)) {
-            Duration overtime = checkOutTime.difference(workEndTime);
-            overtimeHours += overtime.inMinutes / 60.0;
           }
         }
       }
@@ -95,7 +86,6 @@ class ProfileController extends GetxController {
       attendanceSummary.value = {
         'totalPresent': totalPresent,
         'lateEntries': lateEntries,
-        'overtimeHours': overtimeHours.toStringAsFixed(1),
       };
 
       logger.d('Attendance summary loaded: $attendanceSummary');
@@ -105,50 +95,35 @@ class ProfileController extends GetxController {
       attendanceSummary.value = {
         'totalPresent': 0,
         'lateEntries': 0,
-        'overtimeHours': '0.0',
       };
+    }
+  }
+
+  Future<void> loadNotificationPreference() async {
+    try {
+      String uid = auth.currentUser!.uid;
+      DocumentSnapshot<Map<String, dynamic>> doc =
+          await firestore.collection('pegawai').doc(uid).get();
+
+      if (doc.exists) {
+        bool enabled = doc.data()?['notificationsEnabled'] ?? false;
+        notificationService.isNotificationEnabled.value = enabled;
+        logger.d('Notification preference loaded: $enabled');
+      }
+    } catch (e) {
+      logger.e('Error loading notification preference', error: e);
     }
   }
 
   Future<void> updateNotificationPreference(bool value) async {
     try {
-      String uid = auth.currentUser!.uid;
-      await firestore.collection('pegawai').doc(uid).update({
-        'preferences.notificationsEnabled': value,
-      });
-      notificationsEnabled.value = value;
-      Get.snackbar(
-        'Success',
-        'Notification preference updated',
-        snackPosition: SnackPosition.BOTTOM,
-      );
+      await notificationService.toggleNotifications(value);
+      logger.i('Notification preference updated to: $value');
     } catch (e) {
       logger.e('Error updating notification preference', error: e);
       Get.snackbar(
         'Error',
-        'Failed to update notification preference',
-        snackPosition: SnackPosition.BOTTOM,
-      );
-    }
-  }
-
-  Future<void> updateLanguagePreference(String language) async {
-    try {
-      String uid = auth.currentUser!.uid;
-      await firestore.collection('pegawai').doc(uid).update({
-        'preferences.language': language,
-      });
-      appLanguage.value = language;
-      Get.snackbar(
-        'Success',
-        'Language preference updated',
-        snackPosition: SnackPosition.BOTTOM,
-      );
-    } catch (e) {
-      logger.e('Error updating language preference', error: e);
-      Get.snackbar(
-        'Error',
-        'Failed to update language preference',
+        'Failed to update notification settings',
         snackPosition: SnackPosition.BOTTOM,
       );
     }
@@ -190,12 +165,10 @@ class ProfileController extends GetxController {
   String getUserInitials(dynamic name) {
     if (name == null) return 'U';
 
-    // Make sure name is a String
     String nameStr;
     if (name is String) {
       nameStr = name;
     } else if (name is Map) {
-      // If it's a map, try to extract the name field
       nameStr = name['name']?.toString() ?? 'U';
     } else {
       nameStr = name.toString();

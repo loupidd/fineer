@@ -1,4 +1,3 @@
-import 'package:fineer/app/modules/home/views/home_view.dart';
 import 'package:fineer/app/routes/app_pages.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -6,6 +5,11 @@ import 'package:intl/intl.dart';
 import 'package:fineer/app/controllers/page_index_controller.dart';
 
 import '../controllers/profile_controller.dart';
+
+import 'package:fineer/app/services/notification_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+final auth = FirebaseAuth.instance;
 
 class ProfileView extends GetView<ProfileController> {
   ProfileView({super.key});
@@ -393,38 +397,43 @@ class ProfileView extends GetView<ProfileController> {
           const Divider(),
           Obx(() => _buildSwitchSettingsItem(
                 icon: Icons.notifications_outlined,
-                title: 'Notifications',
+                title: 'Daily Reminders',
+                subtitle: 'Get notified at 08:00 WIB (Mon-Fri)',
                 value: controller.notificationsEnabled.value,
                 onChanged: (value) {
                   controller.updateNotificationPreference(value);
                 },
               )),
           const Divider(),
+
+          // Add test notification button (optional - for debugging)
+          if (controller.notificationsEnabled.value) ...[
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: () async {
+                await Get.find<NotificationService>().showTestNotification();
+                Get.snackbar(
+                  'Test Notification',
+                  'Check your notification panel',
+                  snackPosition: SnackPosition.BOTTOM,
+                  duration: const Duration(seconds: 2),
+                );
+              },
+              icon: const Icon(Icons.notification_add, size: 18),
+              label: const Text('Send Test Notification'),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.blue,
+              ),
+            ),
+          ],
+
           const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,
             height: 48,
             child: ElevatedButton(
               onPressed: () {
-                Get.defaultDialog(
-                  title: 'Sign Out',
-                  middleText: 'Are you sure you want to log out?',
-                  actions: [
-                    TextButton(
-                      onPressed: () => {
-                        auth.signOut(),
-                        Get.offAllNamed(Routes.LOGIN),
-                      },
-                      child: const Text('Yes'),
-                    ),
-                    TextButton(
-                      onPressed: () => {
-                        Get.back(),
-                      },
-                      child: const Text('No'),
-                    ),
-                  ],
-                );
+                _showLogoutDialog();
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red.shade50,
@@ -462,6 +471,7 @@ class ProfileView extends GetView<ProfileController> {
   Widget _buildSwitchSettingsItem({
     required IconData icon,
     required String title,
+    String? subtitle,
     required bool value,
     required Function(bool) onChanged,
   }) {
@@ -476,12 +486,27 @@ class ProfileView extends GetView<ProfileController> {
           ),
           const SizedBox(width: 16),
           Expanded(
-            child: Text(
-              title,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
           Switch(
@@ -491,6 +516,113 @@ class ProfileView extends GetView<ProfileController> {
           ),
         ],
       ),
+    );
+  }
+
+  void _showLogoutDialog() {
+    Get.dialog(
+      Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.logout,
+                  color: Colors.red,
+                  size: 40,
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Sign Out',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Are you sure you want to log out?',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 15,
+                  color: Colors.grey.shade700,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Get.back(),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: BorderSide(
+                          color: Colors.grey.shade300,
+                          width: 1.5,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        Get.back();
+                        await controller.signOut();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Logout',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+      barrierDismissible: true,
     );
   }
 
@@ -543,23 +675,6 @@ class ProfileView extends GetView<ProfileController> {
         ],
       ),
     );
-  }
-
-// Inside ProfileView class
-
-  void _changePage(int index) {
-    pageC.changePage(index);
-    switch (index) {
-      case 0:
-        Get.offAllNamed(Routes.HOME);
-        break;
-      case 1:
-        Get.offAllNamed(Routes.ALL_PRESENSI);
-        break;
-      case 2:
-        Get.offAllNamed(Routes.PROFILE);
-        break;
-    }
   }
 
   Widget _buildBottomNavBar() {

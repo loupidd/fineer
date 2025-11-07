@@ -13,8 +13,6 @@ import '../modules/home/bindings/home_binding.dart';
 import '../modules/home/views/home_view.dart';
 import '../modules/login/bindings/login_binding.dart';
 import '../modules/login/views/login_view.dart';
-import '../modules/monthly_report/bindings/monthly_report_binding.dart';
-import '../modules/monthly_report/views/monthly_report_view.dart';
 import '../modules/profile/bindings/profile_binding.dart';
 import '../modules/profile/views/profile_view.dart';
 
@@ -64,11 +62,6 @@ class AppPages {
       name: _Paths.PROFILE,
       page: () => ProfileView(),
       binding: ProfileBinding(),
-    ),
-    GetPage(
-      name: _Paths.MONTHLY_REPORT,
-      page: () => const MonthlyReportView(),
-      binding: MonthlyReportBinding(),
     ),
     GetPage(
       name: Routes.BIOMETRIC_SETUP,
