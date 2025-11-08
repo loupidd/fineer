@@ -44,7 +44,7 @@ class BiometricController extends GetxController {
 
       if (isBiometricAvailable.value) {
         availableBiometrics.value = await _localAuth.getAvailableBiometrics();
-        _logger.d('Available biometrics: ${availableBiometrics.value}');
+        _logger.d('Available biometrics: $availableBiometrics');
       } else {
         _logger.w('Biometric not available on this device');
       }

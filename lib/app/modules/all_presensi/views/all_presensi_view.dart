@@ -593,46 +593,47 @@ class AllPresensiView extends GetView<AllPresensiController> {
     );
   }
 
-  // Implement the bottom navigation bar
   Widget buildBottomNavBar() {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black12,
+            color: Colors.black.withValues(alpha: 0.08),
             blurRadius: 10,
-            offset: Offset(0, -2),
+            offset: const Offset(0, -2),
           ),
         ],
       ),
       child: BottomAppBar(
-        color: Colors.white,
+        color: Colors.transparent,
         elevation: 0,
         notchMargin: 10,
         shape: const CircularNotchedRectangle(),
         child: Container(
-          height: 60,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+          height: 64,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              buildNavBarItem(
-                icon: Icons.home,
+              _buildNavBarItem(
+                icon: Icons.home_rounded,
                 label: 'Home',
                 index: 0,
                 isSelected: pageC.pageIndex.value == 0,
               ),
-              buildNavBarItem(
-                icon: Icons.history,
+              _buildNavBarItem(
+                icon: Icons.history_rounded,
                 label: 'Riwayat',
                 index: 1,
                 isSelected: pageC.pageIndex.value == 1,
               ),
-              buildNavBarItem(
-                icon: Icons.person,
+              _buildNavBarItem(
+                icon: Icons.person_rounded,
                 label: 'Profile',
                 index: 2,
-                isSelected: pageC.pageIndex.value == 3,
+                isSelected: pageC.pageIndex.value == 2,
               ),
             ],
           ),
@@ -641,7 +642,7 @@ class AllPresensiView extends GetView<AllPresensiController> {
     );
   }
 
-  Widget buildNavBarItem({
+  Widget _buildNavBarItem({
     required IconData icon,
     required String label,
     required int index,
@@ -649,37 +650,58 @@ class AllPresensiView extends GetView<AllPresensiController> {
   }) {
     return InkWell(
       onTap: () => changePage(index),
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      borderRadius: BorderRadius.circular(14),
+      splashColor: Colors.blue.withValues(alpha: 0.1),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         constraints: const BoxConstraints(
           minWidth: 60,
-          maxHeight: 50,
+          maxHeight: 54,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? Colors.blue : Colors.grey,
-              size: 20,
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                color: isSelected ? Colors.blue : Colors.grey,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                height: 1.0,
-                letterSpacing: -0.2,
+        decoration: BoxDecoration(
+          color: isSelected
+              ? Colors.blue.withValues(alpha: 0.08)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: AnimatedScale(
+          duration: const Duration(milliseconds: 180),
+          scale: isSelected ? 1.1 : 1.0,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeOut,
+                child: Icon(
+                  icon,
+                  color: isSelected ? Colors.blueAccent : Colors.grey,
+                  size: isSelected ? 23 : 21,
+                ),
               ),
-              textAlign: TextAlign.center,
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
-            ),
-          ],
+              const SizedBox(height: 3),
+              AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOut,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: isSelected ? Colors.blueAccent : Colors.grey,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                  letterSpacing: -0.2,
+                  height: 1.0,
+                ),
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

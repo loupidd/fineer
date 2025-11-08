@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:logger/logger.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../controllers/home_controller.dart';
 
@@ -24,51 +25,194 @@ class HomeView extends GetView<HomeController> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        foregroundColor: Colors.blue,
+        toolbarHeight: 0,
       ),
-      body: SafeArea(
-        child: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          future: controller.getUserOnce(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
+      body: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        future: controller.getUserOnce(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return _buildLoadingScreen();
+          }
 
-            if (snapshot.hasData) {
-              Map<String, dynamic> user = snapshot.data!.data()!;
-              return _buildMainContent(context, user);
-            } else {
-              return const Center(
-                child: Text('Unable to load user data'),
-              );
-            }
-          },
-        ),
+          if (snapshot.hasData) {
+            Map<String, dynamic> user = snapshot.data!.data()!;
+            return _buildMainContent(context, user);
+          } else {
+            return _buildErrorScreen();
+          }
+        },
       ),
       bottomNavigationBar: _buildBottomNavBar(),
     );
   }
 
+  Widget _buildLoadingScreen() {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF2196F3),
+            Color(0xFF1976D2),
+          ],
+        ),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.0, end: 1.0),
+              duration: const Duration(milliseconds: 800),
+              builder: (context, value, child) {
+                return Transform.scale(
+                  scale: 0.8 + (value * 0.2),
+                  child: Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const CircularProgressIndicator(
+                      strokeWidth: 3,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 24),
+            TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.0, end: 1.0),
+              duration: const Duration(milliseconds: 600),
+              builder: (context, value, child) {
+                return Opacity(
+                  opacity: value,
+                  child: const Text(
+                    'Loading your workspace...',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorScreen() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.error_outline,
+            size: 64,
+            color: Colors.red.shade300,
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Unable to load user data',
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.black54,
+            ),
+          ),
+          const SizedBox(height: 24),
+          ElevatedButton.icon(
+            onPressed: () => Get.offAllNamed(Routes.LOGIN),
+            icon: const Icon(Icons.refresh),
+            label: const Text('Retry'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMainContent(BuildContext context, Map<String, dynamic> user) {
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      children: [
-        _buildWelcomeSection(user),
-        const SizedBox(height: 24),
-        _buildHeroSection(user),
-        const SizedBox(height: 16),
-        _buildBiometricPromptCard(),
-        _buildAttendanceSection(),
-        const SizedBox(height: 24),
-        if (user["role"] == "admin") _buildAdminSection(),
-        const SizedBox(height: 16),
-        const SizedBox(height: 16),
-        _buildPresenceHistoryHeader(),
-        const SizedBox(height: 12),
-        _buildPresenceHistoryList(),
+    return CustomScrollView(
+      physics: const BouncingScrollPhysics(),
+      slivers: [
+        // Header with gradient
+        SliverToBoxAdapter(
+          child: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF2196F3),
+                  Color(0xFF1976D2),
+                ],
+              ),
+            ),
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                child: Column(
+                  children: [
+                    _buildWelcomeSection(user),
+                    const SizedBox(height: 24),
+                    _buildHeroSection(user),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        // Content area
+        SliverToBoxAdapter(
+          child: Transform.translate(
+            offset: const Offset(0, -20),
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Color(0xFFF5F7FA),
+                borderRadius: BorderRadius.vertical(
+                  top: Radius.circular(24),
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildBiometricPromptCard(),
+                    _buildAttendanceSection(),
+                    const SizedBox(height: 20),
+                    if (user["role"] == "admin") ...[
+                      _buildAdminSection(),
+                      const SizedBox(height: 20),
+                    ],
+                    _buildPresenceHistoryHeader(),
+                    const SizedBox(height: 12),
+                    _buildPresenceHistoryList(),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -81,130 +225,135 @@ class HomeView extends GetView<HomeController> {
         return const SizedBox.shrink();
       }
 
-      return Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF667EEA),
-              Color(0xFF764BA2),
-            ],
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF667EEA).withValues(alpha: 0.3),
-              blurRadius: 15,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: () => Get.toNamed(Routes.BIOMETRIC_SETUP),
-            borderRadius: BorderRadius.circular(16),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(
-                      biometricC.getBiometricIcon(),
-                      color: Colors.white,
-                      size: 32,
-                    ),
+      return TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0.0, end: 1.0),
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeOut,
+        builder: (context, value, child) {
+          return Transform.translate(
+            offset: Offset(0, 20 * (1 - value)),
+            child: Opacity(
+              opacity: value,
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color(0xFF667EEA),
+                      Color(0xFF764BA2),
+                    ],
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Text(
-                              'Quick Login',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF667EEA).withValues(alpha: 0.3),
+                      blurRadius: 12,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => Get.toNamed(Routes.BIOMETRIC_SETUP),
+                    borderRadius: BorderRadius.circular(16),
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.amber,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Text(
-                                'NEW',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
+                            child: Icon(
+                              biometricC.getBiometricIcon(),
+                              color: Colors.white,
+                              size: 28,
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Enable ${biometricC.getBiometricTypeName()} for faster access',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: Colors.white70,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Text(
+                                      'Quick Login',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.amber,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: const Text(
+                                        'NEW',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Enable ${biometricC.getBiometricTypeName()} for faster access',
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.white70,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(
+                            Icons.arrow_forward_ios,
+                            color: Colors.white,
+                            size: 16,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.arrow_forward_ios,
-                      color: Colors.white,
-                      size: 16,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       );
     });
   }
 
   Widget _buildWelcomeSection(Map<String, dynamic> user) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Column(
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
                 'Welcome back,',
                 style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.amber,
+                  fontSize: 14,
+                  color: Colors.white70,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -212,58 +361,42 @@ class HomeView extends GetView<HomeController> {
               Text(
                 '${user['name']}',
                 style: const TextStyle(
-                  fontSize: 24,
+                  fontSize: 22,
                   fontWeight: FontWeight.bold,
-                  color: Colors.blue,
+                  color: Colors.white,
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),
-          GestureDetector(
-            onTap: () => _showUserOptions(),
-            child: Stack(
-              alignment: Alignment.bottomRight,
-              children: [
-                Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.blue.withAlpha(26),
-                    border: Border.all(
-                      color: Colors.blue.withAlpha(128),
-                      width: 2,
-                    ),
-                  ),
-                  child: Center(
-                    child: Text(
-                      getUserInitials(user['name']),
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blue,
-                      ),
-                    ),
-                  ),
+        ),
+        GestureDetector(
+          onTap: () => _showUserOptions(),
+          child: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withValues(alpha: 0.2),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.3),
+                width: 2,
+              ),
+            ),
+            child: Center(
+              child: Text(
+                getUserInitials(user['name']),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
                 ),
-                Container(
-                  width: 18,
-                  height: 18,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.amber,
-                  ),
-                  child: const Icon(
-                    Icons.menu,
-                    size: 12,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -271,21 +404,11 @@ class HomeView extends GetView<HomeController> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
-          BoxShadow(
-            color: Color.fromRGBO(33, 150, 243, 0.3),
-            blurRadius: 12,
-            offset: Offset(0, 4),
-          ),
-        ],
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF2196F3),
-            Color(0xFF0D47A1),
-          ],
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.2),
+          width: 1,
         ),
       ),
       child: Column(
@@ -294,20 +417,20 @@ class HomeView extends GetView<HomeController> {
           const Text(
             "Today's Attendance",
             style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
               color: Colors.white,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
             stream: controller.streamTodayPresence(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
                   child: SizedBox(
-                    height: 24,
-                    width: 24,
+                    height: 20,
+                    width: 20,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
                       color: Colors.white,
@@ -316,72 +439,60 @@ class HomeView extends GetView<HomeController> {
                 );
               }
 
+              Map<String, dynamic>? presenceData;
               if (snapshot.hasData &&
                   snapshot.data != null &&
                   snapshot.data!.exists) {
-                Map<String, dynamic> presenceData = snapshot.data!.data() ?? {};
-                _logger.d('Today presence data: $presenceData');
+                presenceData = snapshot.data!.data() ?? {};
+              }
 
-                final checkInData = presenceData['masuk'];
-                final hasCheckedIn = checkInData != null;
-                String checkInTime = '--:--';
+              final checkInData = presenceData?['masuk'];
+              final hasCheckedIn = checkInData != null;
+              String checkInTime = '--:--';
 
-                if (hasCheckedIn && checkInData['date'] != null) {
-                  try {
-                    checkInTime = DateFormat.Hm().format(
-                      DateTime.parse(checkInData['date']),
-                    );
-                  } catch (e) {
-                    _logger.e('Error parsing check-in time', error: e);
-                  }
+              if (hasCheckedIn && checkInData['date'] != null) {
+                try {
+                  checkInTime = DateFormat.Hm().format(
+                    DateTime.parse(checkInData['date']),
+                  );
+                } catch (e) {
+                  _logger.e('Error parsing check-in time', error: e);
                 }
+              }
 
-                final checkOutData = presenceData['keluar'];
-                final hasCheckedOut = checkOutData != null;
-                String checkOutTime = '--:--';
+              final checkOutData = presenceData?['keluar'];
+              final hasCheckedOut = checkOutData != null;
+              String checkOutTime = '--:--';
 
-                if (hasCheckedOut && checkOutData['date'] != null) {
-                  try {
-                    checkOutTime = DateFormat.Hm().format(
-                      DateTime.parse(checkOutData['date']),
-                    );
-                  } catch (e) {
-                    _logger.e('Error parsing check-out time', error: e);
-                  }
+              if (hasCheckedOut && checkOutData['date'] != null) {
+                try {
+                  checkOutTime = DateFormat.Hm().format(
+                    DateTime.parse(checkOutData['date']),
+                  );
+                } catch (e) {
+                  _logger.e('Error parsing check-out time', error: e);
                 }
+              }
 
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _buildAttendanceCard(
+              return Row(
+                children: [
+                  Expanded(
+                    child: _buildAttendanceCard(
                       title: 'Check In',
                       value: checkInTime,
                       isCompleted: hasCheckedIn,
                     ),
-                    _buildAttendanceCard(
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildAttendanceCard(
                       title: 'Check Out',
                       value: checkOutTime,
                       isCompleted: hasCheckedOut,
                     ),
-                  ],
-                );
-              } else {
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _buildAttendanceCard(
-                      title: 'Check In',
-                      value: '--:--',
-                      isCompleted: false,
-                    ),
-                    _buildAttendanceCard(
-                      title: 'Check Out',
-                      value: '--:--',
-                      isCompleted: false,
-                    ),
-                  ],
-                );
-              }
+                  ),
+                ],
+              );
             },
           ),
         ],
@@ -395,17 +506,12 @@ class HomeView extends GetView<HomeController> {
     bool isCompleted = false,
   }) {
     return Container(
-      width: 130,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: isCompleted
-            ? Colors.blue.withAlpha(200)
-            : Colors.blue.withAlpha(50),
+        color: Colors.white.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isCompleted
-              ? Colors.blue.withAlpha((0.6 * 255).round())
-              : Colors.blue.withAlpha((0.2 * 255).round()),
+          color: Colors.white.withValues(alpha: 0.15),
           width: 1,
         ),
       ),
@@ -414,22 +520,22 @@ class HomeView extends GetView<HomeController> {
         children: [
           Text(
             title,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w500,
-              color: Colors.white.withAlpha((0.9 * 255).round()),
+              color: Colors.white70,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
             value,
             style: const TextStyle(
-              fontSize: 18,
+              fontSize: 20,
               fontWeight: FontWeight.bold,
               color: Colors.white,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Row(
             children: [
               Icon(
@@ -439,9 +545,10 @@ class HomeView extends GetView<HomeController> {
               ),
               const SizedBox(width: 4),
               Text(
-                isCompleted ? 'Completed' : 'Pending',
+                isCompleted ? 'Done' : 'Pending',
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
                   color: isCompleted ? Colors.greenAccent : Colors.amber,
                 ),
               ),
@@ -458,36 +565,45 @@ class HomeView extends GetView<HomeController> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
+        boxShadow: [
           BoxShadow(
-            color: Colors.black12,
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 10,
-            offset: Offset(0, 2),
+            offset: const Offset(0, 2),
           ),
         ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(
-                Icons.location_on,
-                color: Colors.blue,
-                size: 20,
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.location_on,
+                  color: Colors.blue,
+                  size: 20,
+                ),
               ),
-              SizedBox(width: 8),
-              Text(
+              const SizedBox(width: 12),
+              const Text(
                 'Office Presence',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
+                  color: Colors.black87,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           const Text(
-            'Record your attendance by checking in and out',
+            'Record your attendance for today',
             style: TextStyle(
               fontSize: 13,
               color: Colors.black54,
@@ -500,7 +616,9 @@ class HomeView extends GetView<HomeController> {
                 child: _buildAttendanceButton(
                   label: 'Check In',
                   icon: Icons.login,
-                  color: Colors.blue,
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
+                  ),
                   onTap: () => presensi('masuk'),
                 ),
               ),
@@ -509,7 +627,9 @@ class HomeView extends GetView<HomeController> {
                 child: _buildAttendanceButton(
                   label: 'Check Out',
                   icon: Icons.logout,
-                  color: Colors.blueAccent,
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF4CAF50), Color(0xFF388E3C)],
+                  ),
                   onTap: () => presensi('keluar'),
                 ),
               ),
@@ -523,48 +643,60 @@ class HomeView extends GetView<HomeController> {
   Widget _buildAttendanceButton({
     required String label,
     required IconData icon,
-    required Color color,
+    required Gradient gradient,
     required VoidCallback onTap,
   }) {
     return Obx(() {
       bool isProcessing = pageC.isProcessingAttendance.value;
 
-      return Material(
-        color: color.withAlpha((0.1 * 255).round()),
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          onTap: isProcessing ? null : onTap,
-          borderRadius: BorderRadius.circular(8),
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (isProcessing)
-                  SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(color),
+      return Container(
+        decoration: BoxDecoration(
+          gradient: gradient,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: gradient.colors.first.withValues(alpha: 0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: isProcessing ? null : onTap,
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (isProcessing)
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  else
+                    Icon(
+                      icon,
+                      color: Colors.white,
+                      size: 20,
                     ),
-                  )
-                else
-                  Icon(
-                    icon,
-                    color: color,
-                    size: 20,
+                  const SizedBox(width: 8),
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
                   ),
-                const SizedBox(width: 8),
-                Text(
-                  isProcessing ? 'Processing...' : label,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: isProcessing ? color.withValues(alpha: 0.5) : color,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -574,65 +706,95 @@ class HomeView extends GetView<HomeController> {
 
   Widget _buildAdminSection() {
     return Container(
-      width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Color.fromARGB(255, 55, 130, 236),
-            Color.fromARGB(255, 20, 71, 143),
+            Color(0xFFFF6B6B),
+            Color(0xFFEE5A6F),
           ],
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withAlpha((0.3 * 255).round()),
-            spreadRadius: 1,
-            blurRadius: 5,
-            offset: const Offset(0, 3),
+            color: const Color(0xFFFF6B6B).withValues(alpha: 0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Admin Access',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.admin_panel_settings,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Admin Access',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              SizedBox(height: 8),
-              Text(
-                'Register new employee',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
+                const SizedBox(height: 8),
+                const Text(
+                  'Register new employee',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 13,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-          Flexible(
-            child: ElevatedButton.icon(
-              onPressed: () => Get.toNamed(Routes.ADD_PEGAWAI),
-              icon: const Icon(Icons.person_add, color: Colors.blue),
-              label: const Text('Add'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.blue[800],
-                elevation: 0,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => Get.toNamed(Routes.ADD_PEGAWAI),
+                borderRadius: BorderRadius.circular(12),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.person_add,
+                          color: Color(0xFFFF6B6B), size: 20),
+                      SizedBox(width: 6),
+                      Text(
+                        'Add',
+                        style: TextStyle(
+                          color: Color(0xFFFF6B6B),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -643,28 +805,38 @@ class HomeView extends GetView<HomeController> {
   }
 
   Widget _buildPresenceHistoryHeader() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          const Text(
-            'Recent Activity',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        const Text(
+          'Recent Activity',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
           ),
-          TextButton(
-            onPressed: () => Get.toNamed(Routes.ALL_PRESENSI),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.blue,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-            ),
-            child: const Text('View All'),
+        ),
+        TextButton(
+          onPressed: () => Get.toNamed(Routes.ALL_PRESENSI),
+          style: TextButton.styleFrom(
+            foregroundColor: Colors.blue,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           ),
-        ],
-      ),
+          child: const Row(
+            children: [
+              Text(
+                'View All',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+              SizedBox(width: 4),
+              Icon(Icons.arrow_forward_ios, size: 14),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -673,14 +845,49 @@ class HomeView extends GetView<HomeController> {
       stream: controller.streamLastPresence(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(40),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.blue.shade300),
+              ),
+            ),
+          );
         }
 
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
-              child: Text('No attendance records found'),
+          return Container(
+            padding: const EdgeInsets.all(40),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Center(
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.history,
+                    size: 48,
+                    color: Colors.grey.shade300,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'No attendance records yet',
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
             ),
           );
         }
@@ -692,7 +899,20 @@ class HomeView extends GetView<HomeController> {
               snapshot.data!.docs.length > 5 ? 5 : snapshot.data!.docs.length,
           itemBuilder: (context, index) {
             Map<String, dynamic> data = snapshot.data!.docs[index].data();
-            return _buildPresenceHistoryItem(data);
+            return TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.0, end: 1.0),
+              duration: Duration(milliseconds: 300 + (index * 100)),
+              curve: Curves.easeOut,
+              builder: (context, value, child) {
+                return Transform.translate(
+                  offset: Offset(0, 20 * (1 - value)),
+                  child: Opacity(
+                    opacity: value,
+                    child: _buildPresenceHistoryItem(data),
+                  ),
+                );
+              },
+            );
           },
         );
       },
@@ -700,16 +920,18 @@ class HomeView extends GetView<HomeController> {
   }
 
   Widget _buildPresenceHistoryItem(Map<String, dynamic> data) {
+    final hasCheckedOut = data['keluar'] != null;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: const [
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
           BoxShadow(
-            color: Colors.black12,
-            blurRadius: 5,
-            offset: Offset(0, 2),
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -720,25 +942,25 @@ class HomeView extends GetView<HomeController> {
             Routes.DETAIL_PRESENSI,
             arguments: data,
           ),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
                 Container(
-                  width: 44,
-                  height: 44,
+                  width: 48,
+                  height: 48,
                   decoration: BoxDecoration(
-                    color: data['keluar'] != null
-                        ? Colors.green.withAlpha((0.1 * 255).round())
-                        : Colors.amber.withAlpha((0.1 * 255).round()),
-                    borderRadius: BorderRadius.circular(10),
+                    color: hasCheckedOut
+                        ? Colors.green.withValues(alpha: 0.1)
+                        : Colors.amber.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
-                    data['keluar'] != null
+                    hasCheckedOut
                         ? Icons.check_circle_outline
                         : Icons.access_time,
-                    color: data['keluar'] != null ? Colors.green : Colors.amber,
+                    color: hasCheckedOut ? Colors.green : Colors.amber,
                     size: 24,
                   ),
                 ),
@@ -755,23 +977,39 @@ class HomeView extends GetView<HomeController> {
                               DateTime.parse(data['date']),
                             ),
                             style: const TextStyle(
-                              fontWeight: FontWeight.w500,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
                             ),
                           ),
-                          Text(
-                            data['office'] ?? 'Office',
-                            style: TextStyle(
-                              color: Colors.blue.shade700,
-                              fontWeight: FontWeight.w500,
-                              fontSize: 13,
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              data['office'] ?? 'Office',
+                              style: const TextStyle(
+                                color: Colors.blue,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 11,
+                              ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 8),
                       _buildAttendanceTimeRow(data),
                     ],
                   ),
+                ),
+                const Icon(
+                  Icons.arrow_forward_ios,
+                  size: 16,
+                  color: Colors.black26,
                 ),
               ],
             ),
@@ -820,7 +1058,8 @@ class HomeView extends GetView<HomeController> {
           '$label: $time',
           style: TextStyle(
             fontSize: 13,
-            color: Colors.grey.shade700,
+            color: Colors.grey.shade600,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ],
@@ -829,43 +1068,41 @@ class HomeView extends GetView<HomeController> {
 
   Widget _buildBottomNavBar() {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black12,
+            color: Colors.black.withValues(alpha: 0.06),
             blurRadius: 10,
-            offset: Offset(0, -2),
+            offset: const Offset(0, -2),
           ),
         ],
       ),
-      child: BottomAppBar(
-        color: Colors.white,
-        elevation: 0,
-        notchMargin: 10,
-        shape: const CircularNotchedRectangle(),
+      child: SafeArea(
         child: Container(
-          height: 60,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+          height: 70,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _buildNavBarItem(
-                icon: Icons.home,
+                icon: Icons.home_rounded,
                 label: 'Home',
                 index: 0,
                 isSelected: pageC.pageIndex.value == 0,
               ),
               _buildNavBarItem(
-                icon: Icons.history,
-                label: 'Riwayat',
+                icon: Icons.history_rounded,
+                label: 'History',
                 index: 1,
                 isSelected: pageC.pageIndex.value == 1,
               ),
               _buildNavBarItem(
-                icon: Icons.person,
+                icon: Icons.person_rounded,
                 label: 'Profile',
                 index: 2,
-                isSelected: pageC.pageIndex.value == 3,
+                isSelected: pageC.pageIndex.value == 2,
               ),
             ],
           ),
@@ -880,39 +1117,45 @@ class HomeView extends GetView<HomeController> {
     required int index,
     bool isSelected = false,
   }) {
-    return InkWell(
-      onTap: () => changePage(index),
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        constraints: const BoxConstraints(
-          minWidth: 60,
-          maxHeight: 50,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? Colors.blue : Colors.grey,
-              size: 20,
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                color: isSelected ? Colors.blue : Colors.grey,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                height: 1.0,
-                letterSpacing: -0.2,
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => changePage(index),
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: EdgeInsets.all(isSelected ? 8 : 6),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? Colors.blue.withValues(alpha: 0.1)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  icon,
+                  color: isSelected ? Colors.blue : Colors.grey.shade400,
+                  size: isSelected ? 26 : 24,
+                ),
               ),
-              textAlign: TextAlign.center,
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
-            ),
-          ],
+              const SizedBox(height: 4),
+              AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 200),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isSelected ? Colors.blue : Colors.grey.shade500,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                ),
+                child: Text(label),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -923,17 +1166,19 @@ class HomeView extends GetView<HomeController> {
     switch (index) {
       case 0:
         Get.offAllNamed(Routes.HOME);
+        break;
       case 1:
         Get.offAllNamed(Routes.ALL_PRESENSI);
+        break;
       case 2:
         Get.offAllNamed(Routes.PROFILE);
+        break;
     }
   }
 
   void _showUserOptions() {
     Get.bottomSheet(
       Container(
-        padding: const EdgeInsets.all(24),
         decoration: const BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(
@@ -944,6 +1189,7 @@ class HomeView extends GetView<HomeController> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 20),
               width: 40,
               height: 4,
               decoration: BoxDecoration(
@@ -951,52 +1197,72 @@ class HomeView extends GetView<HomeController> {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24),
+              child: Row(
+                children: [
+                  Icon(Icons.menu, color: Colors.blue, size: 24),
+                  SizedBox(width: 12),
+                  Text(
+                    'Quick Actions',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 20),
-            const Text(
-              'Quick Actions',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.blue,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                children: [
+                  _buildBottomSheetItem(
+                    icon: Icons.person_outline,
+                    label: 'View Profile',
+                    color: Colors.blue,
+                    onTap: () {
+                      Get.back();
+                      Get.toNamed(Routes.PROFILE);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _buildBottomSheetItem(
+                    icon: Icons.fingerprint,
+                    label: 'Biometric Settings',
+                    color: Colors.deepPurple,
+                    onTap: () {
+                      Get.back();
+                      Get.toNamed(Routes.BIOMETRIC_SETUP);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _buildBottomSheetItem(
+                    icon: Icons.logout,
+                    label: 'Logout',
+                    color: Colors.red,
+                    onTap: () {
+                      Get.back();
+                      _showLogoutConfirmation();
+                    },
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 24),
-            _buildBottomSheetItem(
-              icon: Icons.person_outline,
-              label: 'View Profile',
-              color: Colors.blue,
-              onTap: () {
-                Get.back();
-                Get.toNamed(Routes.PROFILE);
-              },
-            ),
-            const SizedBox(height: 12),
-            _buildBottomSheetItem(
-              icon: Icons.fingerprint,
-              label: 'Biometric Settings',
-              color: Colors.deepPurple,
-              onTap: () {
-                Get.back();
-                Get.toNamed(Routes.BIOMETRIC_SETUP);
-              },
-            ),
-            const SizedBox(height: 12),
-            _buildBottomSheetItem(
-              icon: Icons.logout,
-              label: 'Logout',
-              color: Colors.red,
-              onTap: () {
-                Get.back();
-                _showLogoutConfirmation();
-              },
-            ),
-            const SizedBox(height: 20),
           ],
         ),
       ),
       backgroundColor: Colors.transparent,
       isDismissible: true,
       enableDrag: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(24),
+        ),
+      ),
     );
   }
 
@@ -1014,10 +1280,10 @@ class HomeView extends GetView<HomeController> {
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.1),
+            color: color.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: color.withValues(alpha: 0.2),
+              color: color.withValues(alpha: 0.15),
               width: 1,
             ),
           ),
@@ -1061,11 +1327,11 @@ class HomeView extends GetView<HomeController> {
   String getUserInitials(String name) {
     List<String> nameParts = name.split(' ');
     if (nameParts.length > 1) {
-      return '${nameParts[0][0]}${nameParts[1][0]}';
+      return '${nameParts[0][0]}${nameParts[1][0]}'.toUpperCase();
     } else {
       return nameParts[0].length > 1
-          ? nameParts[0].substring(0, 2)
-          : nameParts[0];
+          ? nameParts[0].substring(0, 2).toUpperCase()
+          : nameParts[0].toUpperCase();
     }
   }
 
@@ -1079,6 +1345,8 @@ class HomeView extends GetView<HomeController> {
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.red,
         colorText: Colors.white,
+        margin: const EdgeInsets.all(16),
+        borderRadius: 12,
       );
       _logger.e('Error During Attendance', error: e, stackTrace: stackTrace);
     }
@@ -1089,13 +1357,13 @@ void _showLogoutConfirmation() {
   Get.dialog(
     Dialog(
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Container(
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(24),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1118,7 +1386,7 @@ void _showLogoutConfirmation() {
               style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
-                color: Colors.blue,
+                color: Colors.black87,
               ),
             ),
             const SizedBox(height: 12),
@@ -1127,7 +1395,7 @@ void _showLogoutConfirmation() {
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 15,
-                color: Colors.grey.shade700,
+                color: Colors.grey.shade600,
                 height: 1.4,
               ),
             ),
@@ -1147,12 +1415,12 @@ void _showLogoutConfirmation() {
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    child: const Text(
+                    child: Text(
                       'Cancel',
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
-                        color: Colors.grey,
+                        color: Colors.grey.shade700,
                       ),
                     ),
                   ),
@@ -1162,23 +1430,48 @@ void _showLogoutConfirmation() {
                   child: ElevatedButton(
                     onPressed: () async {
                       try {
-                        // Show loading
-                        Get.back(); // Close dialog
+                        Get.back();
+
+                        // Show elegant loading
                         Get.dialog(
-                          const Center(
-                            child: CircularProgressIndicator(),
+                          Center(
+                            child: Container(
+                              padding: const EdgeInsets.all(24),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: const Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CircularProgressIndicator(),
+                                  SizedBox(height: 16),
+                                  Text(
+                                    'Signing out...',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.black54,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                           barrierDismissible: false,
                         );
 
+                        // Clear session data
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.remove('user_login_timestamp');
+
                         // Sign out
                         await auth.signOut();
 
-                        // Close loading and navigate
-                        Get.back(); // Close loading
+                        // Navigate
+                        Get.back();
                         Get.offAllNamed(Routes.LOGIN);
 
-                        // Show success message
+                        // Success message
                         Get.snackbar(
                           'Success',
                           'You have been logged out',
@@ -1190,7 +1483,7 @@ void _showLogoutConfirmation() {
                           duration: const Duration(seconds: 2),
                         );
                       } catch (e) {
-                        Get.back(); // Close loading if error
+                        Get.back();
                         Get.snackbar(
                           'Error',
                           'Failed to sign out. Please try again.',

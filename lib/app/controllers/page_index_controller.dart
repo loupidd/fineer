@@ -11,7 +11,10 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:intl/intl.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
+import 'dart:async';
+import 'dart:developer';
 
 class PageIndexController extends GetxController {
   RxInt pageIndex = 0.obs;
@@ -47,6 +50,113 @@ class PageIndexController extends GetxController {
   // Track consecutive suspicious attempts
   int suspiciousAttempts = 0;
   final int maxSuspiciousAttempts = 3;
+
+  // Auto-logout timer - check every minute
+  Timer? _sessionCheckTimer;
+  static const String _loginTimeKey = 'user_login_timestamp';
+  static const int _sessionDurationHours = 8;
+
+  @override
+  void onInit() {
+    super.onInit();
+    _initializeSession();
+    _startSessionMonitoring();
+  }
+
+  Future<void> _initializeSession() async {
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String? loginTimeStr = prefs.getString(_loginTimeKey);
+
+      if (loginTimeStr == null) {
+        // First time after login, save current time
+        await _saveLoginTime();
+      } else {
+        // Check if session has expired
+        await _checkSessionExpiry();
+      }
+    } catch (e) {
+      log("Error initializing session: $e");
+    }
+  }
+
+  Future<void> _saveLoginTime() async {
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String currentTime = DateTime.now().toIso8601String();
+      await prefs.setString(_loginTimeKey, currentTime);
+      log("Login time saved: $currentTime");
+    } catch (e) {
+      log("Error saving login time: $e");
+    }
+  }
+
+  void _startSessionMonitoring() {
+    // Check session every minute
+    _sessionCheckTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      _checkSessionExpiry();
+    });
+
+    // Also check immediately
+    _checkSessionExpiry();
+  }
+
+  Future<void> _checkSessionExpiry() async {
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String? loginTimeStr = prefs.getString(_loginTimeKey);
+
+      if (loginTimeStr == null) {
+        // No login time found, save current time
+        await _saveLoginTime();
+        return;
+      }
+
+      DateTime loginTime = DateTime.parse(loginTimeStr);
+      DateTime now = DateTime.now();
+      Duration sessionDuration = now.difference(loginTime);
+
+      log("Session duration: ${sessionDuration.inHours} hours ${sessionDuration.inMinutes % 60} minutes");
+
+      // Check if 8 hours have passed
+      if (sessionDuration.inHours >= _sessionDurationHours) {
+        log("Session expired! Logging out...");
+        await _performAutoLogout();
+      }
+    } catch (e) {
+      log("Error checking session expiry: $e");
+    }
+  }
+
+  Future<void> _performAutoLogout() async {
+    try {
+      // Cancel the timer
+      _sessionCheckTimer?.cancel();
+
+      // Clear login time
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_loginTimeKey);
+
+      // Sign out from Firebase
+      await auth.signOut();
+
+      // Navigate to login
+      Get.offAllNamed(Routes.LOGIN);
+
+      // Show notification
+      Get.snackbar(
+        "Sesi Berakhir",
+        "Anda telah otomatis keluar setelah 8 jam. Silakan login kembali.",
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.orange,
+        colorText: Colors.white,
+        duration: const Duration(seconds: 5),
+        isDismissible: false,
+      );
+    } catch (e) {
+      log("Error during auto logout: $e");
+    }
+  }
 
   void changePage(int i) async {
     pageIndex.value = i;
@@ -283,84 +393,121 @@ class PageIndexController extends GetxController {
           ? "$officeName\n ${distance.toStringAsFixed(0)} meter dari kantor"
           : "Anda berada ${distance.toStringAsFixed(0)} meter dari $officeName";
 
-      if (isInRange) {
-        DocumentSnapshot<Map<String, dynamic>> todayDoc =
-            await colPresence.doc(todayDocID).get();
-
-        if (todayDoc.exists) {
-          Map<String, dynamic>? dataPresenceToday = todayDoc.data();
-
-          if (dataPresenceToday?["keluar"] != null) {
-            _showErrorNotification(
-              "Sudah Absen",
-              "Anda telah melakukan absen masuk dan keluar hari ini.",
-            );
-          } else if (dataPresenceToday?["masuk"] != null) {
-            await _showAttendanceDialog(
-              title: "Absen Keluar",
-              message: "Konfirmasi absen keluar sekarang?\n\n$locationInfo",
-              isCheckIn: false,
-              onConfirm: () async {
-                Get.back();
-
-                await colPresence.doc(todayDocID).update({
-                  "keluar": {
-                    "date": now.toIso8601String(),
-                    "lat": position.latitude,
-                    "long": position.longitude,
-                    "address": address,
-                    "status": status,
-                    "distance": distance,
-                    "office": officeName,
-                    "accuracy": position.accuracy,
-                    "timestamp": FieldValue.serverTimestamp(),
-                  }
-                });
-
-                _showSuccessNotification(
-                  "Absen keluar berhasil dicatat",
-                  false,
-                );
-              },
-            );
-          }
-        } else {
-          await _showAttendanceDialog(
-            title: "Absen Masuk",
-            message: "Konfirmasi absen masuk sekarang?\n\n$locationInfo",
-            isCheckIn: true,
-            onConfirm: () async {
-              Get.back();
-
-              await colPresence.doc(todayDocID).set({
-                "date": now.toIso8601String(),
-                "office": officeName,
-                "masuk": {
-                  "date": now.toIso8601String(),
-                  "lat": position.latitude,
-                  "long": position.longitude,
-                  "address": address,
-                  "status": status,
-                  "distance": distance,
-                  "office": officeName,
-                  "accuracy": position.accuracy,
-                  "timestamp": FieldValue.serverTimestamp(),
-                }
-              });
-
-              _showSuccessNotification(
-                "Absen masuk berhasil dicatat",
-                true,
-              );
-            },
-          );
-        }
-      } else {
+      // First, check if user is in range
+      if (!isInRange) {
         _showErrorNotification(
           "Di Luar Area Kantor",
           "Anda berada di luar radius kantor.\n\n$locationInfo\n\nMohon datang ke kantor untuk melakukan absen.",
         );
+        return;
       }
+
+      // User is in range, now check attendance status
+      DocumentSnapshot<Map<String, dynamic>> todayDoc =
+          await colPresence.doc(todayDocID).get();
+
+      if (!todayDoc.exists) {
+        // No record for today - this must be check-in
+        await _showAttendanceDialog(
+          title: "Absen Masuk",
+          message: "Konfirmasi absen masuk sekarang?\n\n$locationInfo",
+          isCheckIn: true,
+          onConfirm: () async {
+            Get.back();
+
+            await colPresence.doc(todayDocID).set({
+              "date": now.toIso8601String(),
+              "office": officeName,
+              "masuk": {
+                "date": now.toIso8601String(),
+                "lat": position.latitude,
+                "long": position.longitude,
+                "address": address,
+                "status": status,
+                "distance": distance,
+                "office": officeName,
+                "accuracy": position.accuracy,
+                "timestamp": FieldValue.serverTimestamp(),
+              }
+            });
+
+            _showSuccessNotification(
+              "Absen masuk berhasil dicatat",
+              true,
+            );
+          },
+        );
+        return;
+      }
+
+      // Document exists, check the status
+      Map<String, dynamic>? dataPresenceToday = todayDoc.data();
+
+      // Check if user has already checked out
+      if (dataPresenceToday?["keluar"] != null) {
+        _showErrorNotification(
+          "Sudah Absen",
+          "Anda telah melakukan absen masuk dan keluar hari ini.",
+        );
+        return;
+      }
+
+      // Check if user has checked in
+      if (dataPresenceToday?["masuk"] == null) {
+        // This shouldn't happen, but handle it anyway
+        _showErrorNotification(
+          "Data Tidak Valid",
+          "Data absensi tidak lengkap. Silakan hubungi admin.",
+        );
+        return;
+      }
+
+      // User has checked in but not checked out yet - allow check-out
+      // Check if it's before 17:00 WIB
+      int currentHour = now.hour;
+      int currentMinute = now.minute;
+
+      if (currentHour < 17) {
+        int hoursRemaining = 16 - currentHour;
+        int minutesRemaining = 60 - currentMinute;
+
+        _showErrorNotification(
+          "Belum Waktunya Absen Keluar",
+          "Anda hanya dapat absen keluar setelah pukul 17:00 WIB.\n\n"
+              "Waktu sekarang: ${DateFormat('HH:mm').format(now)} WIB\n"
+              "Sisa waktu: $hoursRemaining jam $minutesRemaining menit",
+        );
+        return;
+      }
+
+      // Time is after 17:00, allow check-out
+      await _showAttendanceDialog(
+        title: "Absen Keluar",
+        message: "Konfirmasi absen keluar sekarang?\n\n$locationInfo",
+        isCheckIn: false,
+        onConfirm: () async {
+          Get.back();
+
+          await colPresence.doc(todayDocID).update({
+            "keluar": {
+              "date": now.toIso8601String(),
+              "lat": position.latitude,
+              "long": position.longitude,
+              "address": address,
+              "status": status,
+              "distance": distance,
+              "office": officeName,
+              "accuracy": position.accuracy,
+              "timestamp": FieldValue.serverTimestamp(),
+            }
+          });
+
+          _showSuccessNotification(
+            "Absen keluar berhasil dicatat",
+            false,
+          );
+        },
+      );
     } catch (e) {
       _showErrorNotification(
         "Terjadi Kesalahan",
@@ -881,7 +1028,8 @@ class PageIndexController extends GetxController {
 
   @override
   void onClose() {
-    // Clean up if needed
+    // Cancel session monitoring timer when controller is disposed
+    _sessionCheckTimer?.cancel();
     super.onClose();
   }
 }
