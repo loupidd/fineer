@@ -1,7 +1,7 @@
 // ignore_for_file: unused_local_variable
 
 import 'package:fineer/app/controllers/page_index_controller.dart';
-import 'package:fineer/app/services/notification_service.dart'; // ADD THIS
+import 'package:fineer/app/services/notification_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';

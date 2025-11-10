@@ -597,25 +597,21 @@ class AllPresensiView extends GetView<AllPresensiController> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
+            color: Colors.black.withValues(alpha: 0.06),
             blurRadius: 10,
             offset: const Offset(0, -2),
           ),
         ],
       ),
-      child: BottomAppBar(
-        color: Colors.transparent,
-        elevation: 0,
-        notchMargin: 10,
-        shape: const CircularNotchedRectangle(),
+      child: SafeArea(
         child: Container(
-          height: 64,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+          height: 70,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _buildNavBarItem(
                 icon: Icons.home_rounded,
@@ -625,7 +621,7 @@ class AllPresensiView extends GetView<AllPresensiController> {
               ),
               _buildNavBarItem(
                 icon: Icons.history_rounded,
-                label: 'Riwayat',
+                label: 'History',
                 index: 1,
                 isSelected: pageC.pageIndex.value == 1,
               ),
@@ -648,57 +644,42 @@ class AllPresensiView extends GetView<AllPresensiController> {
     required int index,
     bool isSelected = false,
   }) {
-    return InkWell(
-      onTap: () => changePage(index),
-      borderRadius: BorderRadius.circular(14),
-      splashColor: Colors.blue.withValues(alpha: 0.1),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        constraints: const BoxConstraints(
-          minWidth: 60,
-          maxHeight: 54,
-        ),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? Colors.blue.withValues(alpha: 0.08)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: AnimatedScale(
-          duration: const Duration(milliseconds: 180),
-          scale: isSelected ? 1.1 : 1.0,
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => changePage(index),
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(vertical: 8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeOut,
+                duration: const Duration(milliseconds: 200),
+                padding: EdgeInsets.all(isSelected ? 8 : 6),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? Colors.blue.withValues(alpha: 0.1)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 child: Icon(
                   icon,
-                  color: isSelected ? Colors.blueAccent : Colors.grey,
-                  size: isSelected ? 23 : 21,
+                  color: isSelected ? Colors.blue : Colors.grey.shade400,
+                  size: isSelected ? 26 : 24,
                 ),
               ),
-              const SizedBox(height: 3),
+              const SizedBox(height: 4),
               AnimatedDefaultTextStyle(
                 duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOut,
                 style: TextStyle(
-                  fontSize: 11,
-                  color: isSelected ? Colors.blueAccent : Colors.grey,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                  letterSpacing: -0.2,
-                  height: 1.0,
+                  fontSize: 12,
+                  color: isSelected ? Colors.blue : Colors.grey.shade500,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                 ),
-                child: Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                ),
+                child: Text(label),
               ),
             ],
           ),

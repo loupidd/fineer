@@ -41,6 +41,11 @@ dependencies:
   firebase_messaging: ^15.2.5
   flutter_local_notifications: ^17.2.3
   timezone: ^0.9.4
+  firebase_app_check: ^0.3.1+3
+  firebase_crashlytics: ^4.1.3
+  firebase_analytics: ^11.3.3
+  freerasp: ^6.6.0 # Root/Jailbreak detection (replaces deprecated packages)
+  crypto: ^3.0.5
 
 dev_dependencies:
   flutter_lints: ^5.0.0

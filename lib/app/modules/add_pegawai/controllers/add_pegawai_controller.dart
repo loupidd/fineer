@@ -12,6 +12,7 @@ class AddPegawaiController extends GetxController {
   TextEditingController passAdminC = TextEditingController();
   TextEditingController jobC = TextEditingController();
   TextEditingController siteC = TextEditingController();
+  TextEditingController roleC = TextEditingController();
 
   FirebaseAuth auth = FirebaseAuth.instance;
   FirebaseFirestore firestore = FirebaseFirestore.instance;
@@ -39,7 +40,7 @@ class AddPegawaiController extends GetxController {
             "name": nameC.text,
             "email": emailC.text,
             "uid": uid,
-            "role": "pegawai",
+            "role": roleC.text,
             "site": siteC.text,
             "job": jobC.text,
             "createdAt": DateTime.now().toIso8601String(),
