@@ -59,6 +59,12 @@ class NotificationService extends GetxService {
     if (notificationStatus.isGranted) {
       _logger.i('Notification permission granted');
 
+      // Request exact alarm permission for Android 12+ (critical for scheduled notifications)
+      if (await Permission.scheduleExactAlarm.isDenied) {
+        final alarmStatus = await Permission.scheduleExactAlarm.request();
+        _logger.i('Exact alarm permission: ${alarmStatus.isGranted}');
+      }
+
       // Request FCM permission (iOS)
       NotificationSettings settings = await _fcm.requestPermission(
         alert: true,
@@ -201,26 +207,48 @@ class NotificationService extends GetxService {
       // Cancel existing notifications first
       await _localNotifications.cancelAll();
 
-      final now = tz.TZDateTime.now(tz.getLocation('Asia/Jakarta'));
+      _logger.i('Starting to schedule weekday notifications...');
+
+      final location = tz.getLocation('Asia/Jakarta');
+      final now = tz.TZDateTime.now(location);
 
       // Schedule for Monday to Friday (1-5)
       for (int weekday = DateTime.monday;
           weekday <= DateTime.friday;
           weekday++) {
-        await _scheduleDailyNotification(weekday, now);
+        try {
+          await _scheduleDailyNotification(weekday, now, location);
+          _logger.i(
+              'Successfully scheduled notification for ${_getWeekdayName(weekday)}');
+        } catch (e) {
+          _logger.e(
+              'Failed to schedule notification for ${_getWeekdayName(weekday)}',
+              error: e);
+        }
       }
 
-      _logger.i('Scheduled weekday notifications (Mon-Fri at 08:00 WIB)');
+      // Verify scheduled notifications
+      final pendingNotifications =
+          await _localNotifications.pendingNotificationRequests();
+      _logger.i('Total pending notifications: ${pendingNotifications.length}');
+      for (var notification in pendingNotifications) {
+        _logger.i(
+            'Pending notification ID: ${notification.id}, Title: ${notification.title}');
+      }
+
+      _logger.i(
+          'Completed scheduling weekday notifications (Mon-Fri at 08:00 WIB)');
     } catch (e) {
       _logger.e('Error scheduling notifications', error: e);
+      rethrow;
     }
   }
 
   Future<void> _scheduleDailyNotification(
-      int weekday, tz.TZDateTime now) async {
+      int weekday, tz.TZDateTime now, tz.Location location) async {
     // Find next occurrence of this weekday at 08:00
     tz.TZDateTime scheduledDate = tz.TZDateTime(
-      tz.getLocation('Asia/Jakarta'),
+      location,
       now.year,
       now.month,
       now.day,
@@ -241,6 +269,9 @@ class NotificationService extends GetxService {
       importance: Importance.high,
       priority: Priority.high,
       icon: '@mipmap/ic_launcher',
+      enableLights: true,
+      enableVibration: true,
+      playSound: true,
       styleInformation: BigTextStyleInformation(''),
     );
 
@@ -255,20 +286,26 @@ class NotificationService extends GetxService {
       iOS: iosDetails,
     );
 
-    await _localNotifications.zonedSchedule(
-      weekday, // Use weekday as ID (1-5)
-      'Attendance Reminder',
-      'Don\'t forget to mark your attendance today! 📋',
-      scheduledDate,
-      details,
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
-      matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
-    );
+    try {
+      await _localNotifications.zonedSchedule(
+        weekday, // Use weekday as ID (1-5 for Mon-Fri)
+        'Attendance Reminder',
+        'Don\'t forget to mark your attendance today! 📋',
+        scheduledDate,
+        details,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+      );
 
-    _logger.i(
-        'Scheduled notification for ${_getWeekdayName(weekday)} at ${scheduledDate.toString()}');
+      _logger.i(
+          'Scheduled notification for ${_getWeekdayName(weekday)} at ${scheduledDate.toString()}');
+    } catch (e) {
+      _logger.e('Error in zonedSchedule for ${_getWeekdayName(weekday)}',
+          error: e);
+      rethrow;
+    }
   }
 
   String _getWeekdayName(int weekday) {
@@ -351,5 +388,12 @@ class NotificationService extends GetxService {
       'This is a test notification from Fineer!',
       details,
     );
+
+    _logger.i('Test notification shown');
+  }
+
+  // Get list of scheduled notifications
+  Future<List<PendingNotificationRequest>> getScheduledNotifications() async {
+    return await _localNotifications.pendingNotificationRequests();
   }
 }
