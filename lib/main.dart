@@ -11,6 +11,8 @@ import 'firebase_options.dart';
 import 'package:lottie/lottie.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 //  main() function
 void main() async {
@@ -30,28 +32,75 @@ void main() async {
 }
 
 // SplashScreen Class
-class SplashScreen extends StatelessWidget {
+class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    Future.delayed(const Duration(seconds: 2), () async {
-      // checkSessionDuration before authState
-      await checkSessionDuration();
+  State<SplashScreen> createState() => _SplashScreenState();
+}
 
-      FirebaseAuth.instance.authStateChanges().first.then((user) {
-        if (user != null) {
-          Get.offAllNamed(Routes.HOME);
-        } else {
-          Get.offAllNamed(Routes.LOGIN);
-        }
-      });
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _boot();
+  }
+
+  Future<void> _boot() async {
+    await Future.delayed(const Duration(seconds: 2));
+
+    // 1. VERSION CHECK
+    final supported = await isSupportedVersion();
+
+    if (!supported) {
+      _showForceUpdateDialog();
+      return; // stop flow
+    }
+
+    // 2. SESSION CHECK
+    await checkSessionDuration();
+
+    // 3. AUTH CHECK
+    FirebaseAuth.instance.authStateChanges().first.then((user) {
+      if (user != null) {
+        Get.offAllNamed(Routes.HOME);
+      } else {
+        Get.offAllNamed(Routes.LOGIN);
+      }
     });
+  }
 
+  void _showForceUpdateDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false, // cannot close
+      builder: (_) {
+        return AlertDialog(
+          title: const Text("Update Required"),
+          content: const Text(
+            "A new version of Fineer is available.\nPlease update the app to continue.",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                // If you have no Play Store link, simply close app:
+                // SystemNavigator.pop();
+
+                // Or redirect to your internal APK link if you have one:
+                // launchUrl(Uri.parse(YOUR_URL));
+              },
+              child: const Text("Update"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: Lottie.asset('lib/assets/fineer_lottie.json'),
-      ),
+      body: Center(child: Lottie.asset('lib/assets/fineer_lottie.json')),
     );
   }
 }
@@ -137,4 +186,16 @@ class AppLifecycleObserverState extends State<AppLifecycleObserver>
   Widget build(BuildContext context) {
     return Container();
   }
+}
+
+Future<bool> isSupportedVersion() async {
+  final info = await PackageInfo.fromPlatform();
+  final currentVersion = int.parse(info.buildNumber);
+
+  final config =
+      await FirebaseFirestore.instance.collection('config').doc('app').get();
+
+  final minVersion = config['min_supported_version_android'];
+
+  return currentVersion >= minVersion;
 }
