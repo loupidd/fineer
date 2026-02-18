@@ -61,6 +61,10 @@ class PageIndexController extends GetxController {
   static const String _loginTimeKey = 'user_login_timestamp';
   static const int _sessionDurationHours = 8;
 
+  // Time manipulation thresholds (in seconds)
+  static const int _timeDeltaWarning = 120;
+  static const int _timeDeltaSuspicious = 600;
+
   @override
   void onInit() {
     super.onInit();
@@ -74,10 +78,8 @@ class PageIndexController extends GetxController {
       String? loginTimeStr = prefs.getString(_loginTimeKey);
 
       if (loginTimeStr == null) {
-        // First time after login, save current time
         await _saveLoginTime();
       } else {
-        // Check if session has expired
         await _checkSessionExpiry();
       }
     } catch (e) {
@@ -97,12 +99,9 @@ class PageIndexController extends GetxController {
   }
 
   void _startSessionMonitoring() {
-    // Check session every minute
     _sessionCheckTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
       _checkSessionExpiry();
     });
-
-    // Also check immediately
     _checkSessionExpiry();
   }
 
@@ -112,7 +111,6 @@ class PageIndexController extends GetxController {
       String? loginTimeStr = prefs.getString(_loginTimeKey);
 
       if (loginTimeStr == null) {
-        // No login time found, save current time
         await _saveLoginTime();
         return;
       }
@@ -121,9 +119,8 @@ class PageIndexController extends GetxController {
       DateTime now = DateTime.now();
       Duration sessionDuration = now.difference(loginTime);
 
-      log("Session duration: ${sessionDuration.inHours} hours ${sessionDuration.inMinutes % 60} minutes");
+      log("Session duration: ${sessionDuration.inHours}h ${sessionDuration.inMinutes % 60}m");
 
-      // Check if 8 hours have passed
       if (sessionDuration.inHours >= _sessionDurationHours) {
         log("Session expired! Logging out...");
         await _performAutoLogout();
@@ -135,20 +132,11 @@ class PageIndexController extends GetxController {
 
   Future<void> _performAutoLogout() async {
     try {
-      // Cancel the timer
       _sessionCheckTimer?.cancel();
-
-      // Clear login time
       SharedPreferences prefs = await SharedPreferences.getInstance();
       await prefs.remove(_loginTimeKey);
-
-      // Sign out from Firebase
       await auth.signOut();
-
-      // Navigate to login
       Get.offAllNamed(Routes.LOGIN);
-
-      // Show notification
       Get.snackbar(
         "Sesi Berakhir",
         "Anda telah otomatis keluar setelah 8 jam. Silakan login kembali.",
@@ -165,7 +153,6 @@ class PageIndexController extends GetxController {
 
   void changePage(int i) async {
     pageIndex.value = i;
-
     switch (i) {
       case 1:
         Get.offAllNamed(Routes.HOME);
@@ -177,6 +164,97 @@ class PageIndexController extends GetxController {
         Get.offAllNamed(Routes.HOME);
     }
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // TIME MANIPULATION DETECTION
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Validates device clock against Firestore server time.
+  ///
+  /// Strategy:
+  ///   1. Write a lightweight sentinel doc with the device's current timestamp.
+  ///   2. Read it back — Firestore populates `serverTimestamp` authoritatively.
+  ///   3. Compute |serverTime - deviceTime| and classify the delta.
+  ///
+  /// Returns a map:
+  ///   { "ok": bool, "deltaSeconds": int, "level": "normal"|"warning"|"suspicious" }
+  Future<Map<String, dynamic>> _validateDeviceTime() async {
+    try {
+      final String uid = auth.currentUser!.uid;
+      final DateTime deviceTime = DateTime.now();
+
+      // Write sentinel with device time + server time stamp
+      final DocumentReference sentinelRef = firestore
+          .collection("pegawai")
+          .doc(uid)
+          .collection("time_checks")
+          .doc();
+
+      await sentinelRef.set({
+        "deviceTime": deviceTime.toIso8601String(),
+        "serverTime": FieldValue.serverTimestamp(),
+        "platform": Platform.isAndroid ? "Android" : "iOS",
+      });
+
+      // Read back to get the resolved server timestamp
+      final DocumentSnapshot snap = await sentinelRef.get();
+      final data = snap.data() as Map<String, dynamic>?;
+
+      // Clean up sentinel (fire-and-forget)
+      sentinelRef.delete().catchError((_) {});
+
+      if (data == null || data["serverTime"] == null) {
+        // Cannot verify — treat as warning but don't block
+        return {"ok": true, "deltaSeconds": 0, "level": "unknown"};
+      }
+
+      final Timestamp serverTs = data["serverTime"] as Timestamp;
+      final DateTime serverTime = serverTs.toDate();
+      final int deltaSeconds =
+          serverTime.difference(deviceTime).inSeconds.abs();
+
+      log("Time check → deviceTime: $deviceTime | serverTime: $serverTime | delta: ${deltaSeconds}s");
+
+      if (deltaSeconds >= _timeDeltaSuspicious) {
+        return {
+          "ok": false,
+          "deltaSeconds": deltaSeconds,
+          "level": "suspicious"
+        };
+      } else if (deltaSeconds >= _timeDeltaWarning) {
+        return {"ok": false, "deltaSeconds": deltaSeconds, "level": "warning"};
+      } else {
+        return {"ok": true, "deltaSeconds": deltaSeconds, "level": "normal"};
+      }
+    } catch (e) {
+      log("Time validation error: $e");
+      // Network / Firestore failure — don't block attendance but log it
+      return {"ok": true, "deltaSeconds": -1, "level": "unknown"};
+    }
+  }
+
+  /// Logs a time manipulation attempt to Firestore for admin review.
+  Future<void> _logTimeManipulation(int deltaSeconds, String level) async {
+    try {
+      final String uid = auth.currentUser!.uid;
+      await firestore
+          .collection("pegawai")
+          .doc(uid)
+          .collection("suspicious_activities")
+          .add({
+        "timestamp": FieldValue.serverTimestamp(),
+        "type": "time_manipulation_attempt",
+        "deltaSeconds": deltaSeconds,
+        "level": level,
+        "deviceTime": DateTime.now().toIso8601String(),
+        "deviceInfo": await _getDeviceInfo(),
+      });
+    } catch (e) {
+      // Logging failed silently
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> processAttendance() async {
     if (isProcessingAttendance.value) {
@@ -202,7 +280,7 @@ class PageIndexController extends GetxController {
                 children: [
                   CircularProgressIndicator(),
                   SizedBox(height: 16),
-                  Text("Memverifikasi lokasi..."),
+                  Text("Memverifikasi lokasi & waktu..."),
                 ],
               ),
             ),
@@ -211,11 +289,36 @@ class PageIndexController extends GetxController {
         barrierDismissible: false,
       );
 
+      // ── TIME MANIPULATION CHECK ──────────────────────────────────────────
+      final timeCheck = await _validateDeviceTime();
+      final String timeLevel = timeCheck["level"] ?? "unknown";
+      final int timeDelta = timeCheck["deltaSeconds"] ?? 0;
+
+      if (timeLevel == "suspicious") {
+        await _logTimeManipulation(timeDelta, timeLevel);
+        if (Get.isDialogOpen ?? false) Get.back();
+        _showErrorNotification(
+          "Waktu Perangkat Tidak Valid",
+          "Jam perangkat Anda berbeda ${timeDelta}s dari server.\n\n"
+              "Terdeteksi potensi manipulasi waktu. Absensi dibatalkan.\n"
+              "Aktifkan 'Tanggal & Waktu Otomatis' di pengaturan perangkat.",
+        );
+        suspiciousAttempts++;
+        return;
+      }
+
+      if (timeLevel == "warning") {
+        await _logTimeManipulation(timeDelta, timeLevel);
+        // Allow but record — admin can review
+        log("Time WARNING: delta ${timeDelta}s — proceeding with attendance");
+      }
+      // ────────────────────────────────────────────────────────────────────
+
       if (lastLocationUpdate != null) {
         final timeSinceLastUpdate =
             DateTime.now().difference(lastLocationUpdate!).inSeconds;
         if (timeSinceLastUpdate < minLocationUpdateInterval) {
-          Get.back();
+          if (Get.isDialogOpen ?? false) Get.back();
           Get.snackbar(
             "Terlalu Cepat",
             "Harap tunggu beberapa detik sebelum mencoba lagi",
@@ -227,7 +330,7 @@ class PageIndexController extends GetxController {
 
       Map<String, dynamic> dataResponse = await _determinePositionSecure();
 
-      Get.back();
+      if (Get.isDialogOpen ?? false) Get.back();
 
       if (dataResponse["error"] != true) {
         Position position = dataResponse["position"];
@@ -239,9 +342,9 @@ class PageIndexController extends GetxController {
           if (suspiciousAttempts >= maxSuspiciousAttempts) {
             _showErrorNotification(
               "Terlalu Banyak Percobaan",
-              "Terdeteksi terlalu banyak percobaan menggunakan lokasi palsu. Akun Anda akan ditinjau oleh admin.",
+              "Terdeteksi terlalu banyak percobaan menggunakan lokasi palsu. "
+                  "Akun Anda akan ditinjau oleh admin.",
             );
-            // Log suspicious activity
             await _logSuspiciousActivity(position);
             suspiciousAttempts = 0;
             return;
@@ -249,12 +352,12 @@ class PageIndexController extends GetxController {
 
           _showErrorNotification(
             "Lokasi Tidak Valid",
-            "Terdeteksi penggunaan lokasi palsu. Mohon gunakan lokasi asli.\n\nPercobaan: $suspiciousAttempts/$maxSuspiciousAttempts",
+            "Terdeteksi penggunaan lokasi palsu. Mohon gunakan lokasi asli.\n\n"
+                "Percobaan: $suspiciousAttempts/$maxSuspiciousAttempts",
           );
           return;
         }
 
-        // Reset suspicious attempts on success
         suspiciousAttempts = 0;
         lastLocationUpdate = DateTime.now();
         lastPosition = position;
@@ -268,15 +371,12 @@ class PageIndexController extends GetxController {
             "${placemarks[0].locality ?? ''}";
 
         await updatePosition(position, address);
-        await checkPresenceInOffice(position, address);
+        await checkPresenceInOffice(position, address, timeLevel, timeDelta);
       } else {
         Get.snackbar("Terjadi Kesalahan", dataResponse["message"]);
       }
     } catch (e) {
-      if (Get.isDialogOpen ?? false) {
-        Get.back();
-      }
-
+      if (Get.isDialogOpen ?? false) Get.back();
       Get.snackbar(
         "Error",
         "Gagal memproses presensi: $e",
@@ -345,7 +445,12 @@ class PageIndexController extends GetxController {
     return {"platform": "unknown"};
   }
 
-  Future<void> checkPresenceInOffice(Position position, String address) async {
+  Future<void> checkPresenceInOffice(
+    Position position,
+    String address,
+    String timeLevel,
+    int timeDelta,
+  ) async {
     String closestOfficeName = "";
     double shortestDistance = double.infinity;
     bool isInRange = false;
@@ -375,6 +480,8 @@ class PageIndexController extends GetxController {
       shortestDistance,
       isInRange,
       closestOfficeName,
+      timeLevel,
+      timeDelta,
     );
   }
 
@@ -384,6 +491,8 @@ class PageIndexController extends GetxController {
     double distance,
     bool isInRange,
     String officeName,
+    String timeLevel,
+    int timeDelta,
   ) async {
     try {
       String uid = auth.currentUser!.uid;
@@ -398,21 +507,20 @@ class PageIndexController extends GetxController {
           ? "$officeName\n ${distance.toStringAsFixed(0)} meter dari kantor"
           : "Anda berada ${distance.toStringAsFixed(0)} meter dari $officeName";
 
-      // First, check if user is in range
       if (!isInRange) {
         _showErrorNotification(
           "Di Luar Area Kantor",
-          "Anda berada di luar radius kantor.\n\n$locationInfo\n\nMohon datang ke kantor untuk melakukan absen.",
+          "Anda berada di luar radius kantor.\n\n$locationInfo\n\n"
+              "Mohon datang ke kantor untuk melakukan absen.",
         );
         return;
       }
 
-      // User is in range, now check attendance status
       DocumentSnapshot<Map<String, dynamic>> todayDoc =
           await colPresence.doc(todayDocID).get();
 
       if (!todayDoc.exists) {
-        // No record for today - this must be check-in
+        // ── CHECK-IN ────────────────────────────────────────────────────────
         await _showAttendanceDialog(
           title: "Absen Masuk",
           message: "Konfirmasi absen masuk sekarang?\n\n$locationInfo",
@@ -433,22 +541,21 @@ class PageIndexController extends GetxController {
                 "office": officeName,
                 "accuracy": position.accuracy,
                 "timestamp": FieldValue.serverTimestamp(),
+                // Time integrity metadata
+                "deviceTime": now.toIso8601String(),
+                "timeDeltaSeconds": timeDelta,
+                "timeIntegrityLevel": timeLevel,
               }
             });
 
-            _showSuccessNotification(
-              "Absen masuk berhasil dicatat",
-              true,
-            );
+            _showSuccessNotification("Absen masuk berhasil dicatat", true);
           },
         );
         return;
       }
 
-      // Document exists, check the status
       Map<String, dynamic>? dataPresenceToday = todayDoc.data();
 
-      // Check if user has already checked out
       if (dataPresenceToday?["keluar"] != null) {
         _showErrorNotification(
           "Sudah Absen",
@@ -457,9 +564,7 @@ class PageIndexController extends GetxController {
         return;
       }
 
-      // Check if user has checked in
       if (dataPresenceToday?["masuk"] == null) {
-        // This shouldn't happen, but handle it anyway
         _showErrorNotification(
           "Data Tidak Valid",
           "Data absensi tidak lengkap. Silakan hubungi admin.",
@@ -467,25 +572,30 @@ class PageIndexController extends GetxController {
         return;
       }
 
-      // User has checked in but not checked out yet - allow check-out
-      // Check if it's before 17:00 WIB
-      int currentHour = now.hour;
-      int currentMinute = now.minute;
+      // ── CHECK-OUT — allowed from 16:30 WIB ──────────────────────────────
+      final int currentHour = now.hour;
+      final int currentMinute = now.minute;
+      final bool isAfterCheckoutTime =
+          currentHour > 16 || (currentHour == 16 && currentMinute >= 30);
 
-      if (currentHour < 17) {
-        int hoursRemaining = 16 - currentHour;
-        int minutesRemaining = 60 - currentMinute;
+      if (!isAfterCheckoutTime) {
+        // Calculate remaining time
+        final DateTime checkoutAllowedTime =
+            DateTime(now.year, now.month, now.day, 16, 30);
+        final Duration remaining = checkoutAllowedTime.difference(now);
+        final int hoursRemaining = remaining.inHours;
+        final int minutesRemaining = remaining.inMinutes % 60;
 
         _showErrorNotification(
           "Belum Waktunya Absen Keluar",
-          "Anda hanya dapat absen keluar setelah pukul 17:00 WIB.\n\n"
+          "Anda hanya dapat absen keluar setelah pukul 16:30 WIB.\n\n"
               "Waktu sekarang: ${DateFormat('HH:mm').format(now)} WIB\n"
               "Sisa waktu: $hoursRemaining jam $minutesRemaining menit",
         );
         return;
       }
 
-      // Time is after 17:00, allow check-out
+      // ── CHECK-OUT dialog ─────────────────────────────────────────────────
       await _showAttendanceDialog(
         title: "Absen Keluar",
         message: "Konfirmasi absen keluar sekarang?\n\n$locationInfo",
@@ -504,13 +614,14 @@ class PageIndexController extends GetxController {
               "office": officeName,
               "accuracy": position.accuracy,
               "timestamp": FieldValue.serverTimestamp(),
+              // Time integrity metadata
+              "deviceTime": now.toIso8601String(),
+              "timeDeltaSeconds": timeDelta,
+              "timeIntegrityLevel": timeLevel,
             }
           });
 
-          _showSuccessNotification(
-            "Absen keluar berhasil dicatat",
-            false,
-          );
+          _showSuccessNotification("Absen keluar berhasil dicatat", false);
         },
       );
     } catch (e) {
@@ -714,9 +825,7 @@ class PageIndexController extends GetxController {
     );
 
     Future.delayed(const Duration(seconds: 2), () {
-      if (Get.isDialogOpen ?? false) {
-        Get.back();
-      }
+      if (Get.isDialogOpen ?? false) Get.back();
     });
   }
 
@@ -813,7 +922,6 @@ class PageIndexController extends GetxController {
     }
   }
 
-  // Enhanced Location Security using only Geolocator and device_info_plus
   Future<Map<String, dynamic>> _determinePositionSecure() async {
     bool serviceEnabled;
     LocationPermission permission;
@@ -843,17 +951,13 @@ class PageIndexController extends GetxController {
     }
 
     try {
-      // SECURITY CHECK 1: Check if running on emulator
+      // SECURITY CHECK 1: Emulator detection
       try {
         DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
-        bool isPhysicalDevice = true;
 
         if (Platform.isAndroid) {
           AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
-          isPhysicalDevice = androidInfo.isPhysicalDevice;
-
-          // Additional check for common emulator indicators
-          if (!isPhysicalDevice ||
+          if (!androidInfo.isPhysicalDevice ||
               androidInfo.model.toLowerCase().contains('sdk') ||
               androidInfo.product.toLowerCase().contains('sdk') ||
               androidInfo.fingerprint.toLowerCase().contains('generic') ||
@@ -867,9 +971,7 @@ class PageIndexController extends GetxController {
           }
         } else if (Platform.isIOS) {
           IosDeviceInfo iosInfo = await deviceInfo.iosInfo;
-          isPhysicalDevice = iosInfo.isPhysicalDevice;
-
-          if (!isPhysicalDevice) {
+          if (!iosInfo.isPhysicalDevice) {
             return {
               "message": "Absensi tidak dapat dilakukan dari simulator. "
                   "Mohon gunakan perangkat fisik.",
@@ -878,12 +980,11 @@ class PageIndexController extends GetxController {
           }
         }
       } catch (e) {
-        // Device check failed, continue without blocking
+        // Device check failed, continue
       }
 
-      // SECURITY CHECK 2: Get multiple position samples for validation
+      // SECURITY CHECK 2: Multiple position samples
       List<Position> positions = [];
-
       for (int i = 0; i < 3; i++) {
         try {
           Position pos = await Geolocator.getCurrentPosition(
@@ -894,12 +995,8 @@ class PageIndexController extends GetxController {
             ),
           );
           positions.add(pos);
-
-          if (i < 2) {
-            await Future.delayed(const Duration(milliseconds: 500));
-          }
+          if (i < 2) await Future.delayed(const Duration(milliseconds: 500));
         } catch (e) {
-          // Failed to get position, continue with what we have
           break;
         }
       }
@@ -912,11 +1009,9 @@ class PageIndexController extends GetxController {
       }
 
       Position position = positions.last;
-
-      // SECURITY CHECK 3: Built-in mock detection
       bool isMocked = position.isMocked;
 
-      // SECURITY CHECK 4: Validate position consistency
+      // SECURITY CHECK 3: Position consistency
       if (positions.length >= 2) {
         double maxDistance = 0;
         for (int i = 0; i < positions.length - 1; i++) {
@@ -926,12 +1021,8 @@ class PageIndexController extends GetxController {
             positions[i + 1].latitude,
             positions[i + 1].longitude,
           );
-          if (distance > maxDistance) {
-            maxDistance = distance;
-          }
+          if (distance > maxDistance) maxDistance = distance;
         }
-
-        // If positions vary by more than 100 meters in 1 second, suspicious
         if (maxDistance > 100) {
           return {
             "message":
@@ -943,7 +1034,7 @@ class PageIndexController extends GetxController {
         }
       }
 
-      // SECURITY CHECK 5: Compare with last known position
+      // SECURITY CHECK 4: Last known position comparison
       if (lastPosition != null && lastLocationUpdate != null) {
         final timeDiff =
             DateTime.now().difference(lastLocationUpdate!).inSeconds;
@@ -953,10 +1044,7 @@ class PageIndexController extends GetxController {
           position.latitude,
           position.longitude,
         );
-
-        // Calculate maximum possible distance based on time (assuming car speed)
-        final maxPossibleDistance = timeDiff * 30; // 30 m/s = ~108 km/h
-
+        final maxPossibleDistance = timeDiff * 30;
         if (distance > maxPossibleDistance && timeDiff < 300) {
           return {
             "message":
@@ -968,53 +1056,49 @@ class PageIndexController extends GetxController {
         }
       }
 
-      // SECURITY CHECK 6: Accuracy validation
+      // SECURITY CHECK 5: Accuracy validation
       if (position.accuracy > 50) {
         return {
           "message":
               "Akurasi lokasi terlalu rendah (${position.accuracy.toStringAsFixed(0)}m). "
-                  "Mohon pastikan GPS aktif dan sinyal baik. "
-                  "Coba pindah ke area terbuka.",
+                  "Mohon pastikan GPS aktif dan sinyal baik.",
           "error": true
         };
       }
 
-      // SECURITY CHECK 7: Speed check (detect unnatural movement)
+      // SECURITY CHECK 6: Speed check
       if (position.speed > 50) {
         return {
           "message":
-              "Kecepatan pergerakan tidak wajar terdeteksi (${position.speed.toStringAsFixed(1)} m/s). "
-                  "Mohon tunggu beberapa saat dan coba lagi saat tidak bergerak.",
+              "Kecepatan pergerakan tidak wajar (${position.speed.toStringAsFixed(1)} m/s).",
           "error": true
         };
       }
 
-      // SECURITY CHECK 8: Altitude check (detect unrealistic altitude)
+      // SECURITY CHECK 7: Altitude check
       if (position.altitude < -500 || position.altitude > 10000) {
         return {
           "message":
-              "Data lokasi tidak valid. Altitude: ${position.altitude.toStringAsFixed(0)}m. "
-                  "Mohon restart GPS Anda.",
+              "Data lokasi tidak valid. Altitude: ${position.altitude.toStringAsFixed(0)}m.",
           "error": true
         };
       }
 
-      // SECURITY CHECK 9: Check for suspiciously perfect accuracy
+      // SECURITY CHECK 8: Suspiciously perfect accuracy
       if (position.accuracy < 1.0) {
         return {
           "message":
               "Akurasi lokasi terlalu sempurna (${position.accuracy.toStringAsFixed(2)}m). "
-                  "Ini mungkin indikasi fake GPS. Mohon tunggu hingga GPS stabil.",
+                  "Kemungkinan fake GPS.",
           "error": true,
           "isMocked": true
         };
       }
 
-      // SECURITY CHECK 10: Final mock validation
+      // SECURITY CHECK 9: Built-in mock flag
       if (isMocked) {
         return {
-          "message": "Terdeteksi penggunaan aplikasi fake GPS/mock location. "
-              "Mohon nonaktifkan aplikasi fake GPS dan gunakan lokasi sebenarnya.",
+          "message": "Terdeteksi penggunaan aplikasi fake GPS/mock location.",
           "error": true,
           "isMocked": true
         };
@@ -1033,7 +1117,6 @@ class PageIndexController extends GetxController {
 
   @override
   void onClose() {
-    // Cancel session monitoring timer when controller is disposed
     _sessionCheckTimer?.cancel();
     super.onClose();
   }
