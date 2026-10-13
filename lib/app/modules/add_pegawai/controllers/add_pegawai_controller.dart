@@ -13,6 +13,7 @@ class AddPegawaiController extends GetxController {
   TextEditingController jobC = TextEditingController();
   TextEditingController siteC = TextEditingController();
   TextEditingController roleC = TextEditingController();
+  final isLoading = false.obs;
 
   FirebaseAuth auth = FirebaseAuth.instance;
   FirebaseFirestore firestore = FirebaseFirestore.instance;

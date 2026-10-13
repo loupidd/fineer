@@ -1,712 +1,366 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fineer/app/routes/app_pages.dart';
+import 'package:fineer/app/theme/app_theme.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
-import 'package:get/get.dart';
-import 'package:syncfusion_flutter_datepicker/datepicker.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
-
+import 'package:get/get.dart';
+import 'package:intl/intl.dart';
+import 'package:syncfusion_flutter_datepicker/datepicker.dart';
 import '../controllers/all_presensi_controller.dart';
-import 'package:fineer/app/controllers/page_index_controller.dart';
 
 class AllPresensiView extends GetView<AllPresensiController> {
-  AllPresensiView({super.key});
-
-  final pageC = Get.find<PageIndexController>();
+  const AllPresensiView({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? FC.bgDark : const Color(0xFFF0F6FF);
+    final surface = isDark ? FC.cardDark : Colors.white;
+    final border = isDark ? FC.borderDark : FC.borderLight;
+    final tp = isDark ? FC.textDark : FC.textLight;
+    final ts = isDark ? FC.textSecDark : FC.textSecLight;
+
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: bg,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        foregroundColor: Colors.blue,
-        title: const Text(
-          'Riwayat Presensi',
-          style: TextStyle(fontWeight: FontWeight.w600),
-        ),
-        centerTitle: true,
+        title: Text('history_title'.tr),
         actions: [
           IconButton(
-            icon: const Icon(Icons.filter_list),
-            onPressed: () {
-              // Show date range picker dialog
-              _showDateRangePickerDialog(context);
-            },
+            icon: const Icon(Icons.tune_rounded),
+            onPressed: () => _showDatePicker(context, isDark),
           ),
         ],
       ),
       body: Column(
         children: [
-          // Status header section with animation
+          // Stats header
           AnimatedBuilder(
             animation: controller.statsAnimation,
-            builder: (context, child) {
-              return Transform.scale(
-                scale: 0.95 + (0.05 * controller.statsAnimation.value),
-                child: Opacity(
-                  opacity: controller.statsAnimation.value,
-                  child: Container(
-                    margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Colors.blue, Color(0xFF1565C0)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+            builder: (_, __) => Transform.scale(
+              scale: 0.95 + 0.05 * controller.statsAnimation.value,
+              child: Opacity(
+                opacity: controller.statsAnimation.value,
+                child: _StatsCard(controller: controller, isDark: isDark),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 6),
+            child: Row(children: [
+              Container(
+                  width: 4,
+                  height: 16,
+                  decoration: BoxDecoration(
+                    color: FC.blue,
+                    borderRadius: BorderRadius.circular(2),
+                  )),
+              const SizedBox(width: 8),
+              Text('Riwayat Kehadiran',
+                  style: TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w700, color: tp)),
+            ]),
+          ),
+          // List
+          Expanded(child: Obx(() {
+            if (controller.isLoading.value) {
+              return Column(
+                  children: List.generate(
+                      4,
+                      (i) => Container(
+                            margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                            height: 80,
+                            decoration: BoxDecoration(
+                              color: isDark ? FC.card2Dark : FC.borderLight,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          )));
+            }
+            if (controller.allPresence.isEmpty) {
+              return Center(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.history_toggle_off,
+                    size: 64, color: isDark ? FC.textTerDark : FC.textTerLight),
+                const SizedBox(height: 12),
+                Text('history_empty'.tr,
+                    style: TextStyle(
+                        fontSize: 15,
+                        color: isDark ? FC.textTerDark : FC.textTerLight)),
+              ]));
+            }
+            return AnimationLimiter(
+              child: ListView.builder(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                itemCount: controller.presenceLength,
+                itemBuilder: (ctx, i) {
+                  final doc = controller.allPresence[i];
+                  final data = doc.data() as Map<String, dynamic>;
+                  final norm = controller.normalizePresenceData(data, doc.id);
+                  return AnimationConfiguration.staggeredList(
+                    position: i,
+                    duration: const Duration(milliseconds: 450),
+                    child: SlideAnimation(
+                      verticalOffset: 30,
+                      child: FadeInAnimation(
+                        child: _PresenceCard(
+                          data: norm,
+                          isDark: isDark,
+                          statusColor: controller.getStatusColor(data),
+                          onTap: () => Get.toNamed(Routes.DETAIL_PRESENSI,
+                              arguments: norm),
+                        ),
                       ),
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.blue.withAlpha((0.3 * 255).round()),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
                     ),
-                    child: Obx(
-                      () {
-                        // Get actual data from controller
-                        int onTimeCount = controller.onTimeCount.value;
-                        int lateCount = controller.lateCount.value;
-                        int absentCount = controller.absentCount.value;
-
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text(
-                                  'Periode Laporan',
-                                  style: TextStyle(
-                                    color: Colors.white70,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white
-                                        .withAlpha((0.2 * 255).round()),
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: Text(
-                                    controller.filterText ?? 'Semua',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceAround,
-                              children: [
-                                _buildStatItem(
-                                  'Tepat Waktu',
-                                  onTimeCount.toString(),
-                                  Icons.check_circle_outline,
-                                  Colors.greenAccent,
-                                ),
-                                _buildStatItem(
-                                  'Terlambat',
-                                  lateCount.toString(),
-                                  Icons.warning_outlined,
-                                  Colors.orangeAccent,
-                                ),
-                                _buildStatItem(
-                                  'Tidak Hadir',
-                                  absentCount.toString(),
-                                  Icons.cancel_outlined,
-                                  Colors.redAccent,
-                                ),
-                              ],
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 4, left: 16, top: 24),
-              child: Text("Riwayat Kehadiran",
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            ),
-          ),
-
-          // List of attendance entries
-          Expanded(
-            child: Obx(
-              () => controller.isLoading.value
-                  ? const Center(child: CircularProgressIndicator())
-                  : controller.allPresence.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.history_toggle_off,
-                                size: 80,
-                                color: Colors.grey[400],
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'Tidak ada riwayat presensi',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 8,
-                            horizontal: 16,
-                          ),
-                          itemCount: controller.presenceLength,
-                          itemBuilder: (context, index) {
-                            DocumentSnapshot doc =
-                                controller.allPresence[index];
-                            Map<String, dynamic> data =
-                                doc.data() as Map<String, dynamic>;
-
-                            // Helper function to get date string from either field
-                            String? getDateString(Map<String, dynamic>? dataMap,
-                                String fieldName) {
-                              if (dataMap == null) {
-                                return null;
-                              }
-                              String? result = dataMap[fieldName] as String? ??
-                                  dataMap["${fieldName}time"] as String?;
-                              return result;
-                            }
-
-                            // Safely parse date
-                            DateTime? parseDate(String? dateStr) {
-                              if (dateStr == null) return null;
-                              try {
-                                return DateTime.parse(dateStr);
-                              } catch (e) {
-                                return null;
-                              }
-                            }
-
-                            // Parse main date
-                            DateTime? date;
-                            String? dateStr = getDateString(data, 'date');
-                            if (dateStr != null) {
-                              date = parseDate(dateStr);
-                            }
-
-                            // Format day of month, day name, and full date
-                            String dayOfMonth = date != null
-                                ? DateFormat('d').format(date)
-                                : "--";
-                            String dayName = date != null
-                                ? DateFormat('EEEE').format(date)
-                                : "Unknown";
-                            String fullDate = date != null
-                                ? DateFormat('MMMM d, yyyy').format(date)
-                                : "--";
-
-                            // Get status color
-                            Color statusColor = Colors.red;
-
-                            if (data['masuk'] != null) {
-                              try {
-                                statusColor = controller.getStatusColor(data);
-                              } catch (e) {
-                                statusColor = Colors.red;
-                              }
-                            }
-
-                            // Get check-in time
-                            String checkInTime = '--:--';
-                            if (data['masuk'] != null) {
-                              Map<String, dynamic>? masukData;
-                              try {
-                                masukData =
-                                    data['masuk'] as Map<String, dynamic>?;
-                                if (masukData != null) {
-                                  String? masukDateStr =
-                                      getDateString(masukData, 'date');
-                                  DateTime? masukDate = parseDate(masukDateStr);
-                                  if (masukDate != null) {
-                                    checkInTime =
-                                        DateFormat.Hm().format(masukDate);
-                                  }
-                                }
-                              } catch (e) {
-                                Get.log('Error parsing check-in data: $e');
-                              }
-                            }
-
-                            // Get check-out time
-                            String checkOutTime = '--:--';
-                            if (data['keluar'] != null) {
-                              Map<String, dynamic>? keluarData;
-                              try {
-                                keluarData =
-                                    data['keluar'] as Map<String, dynamic>?;
-                                if (keluarData != null) {
-                                  String? keluarDateStr =
-                                      getDateString(keluarData, 'date');
-                                  DateTime? keluarDate =
-                                      parseDate(keluarDateStr);
-                                  if (keluarDate != null) {
-                                    checkOutTime =
-                                        DateFormat.Hm().format(keluarDate);
-                                  }
-                                }
-                              } catch (e) {
-                                Get.log('Error parsing check-out data: $e');
-                              }
-                            }
-
-                            return AnimationConfiguration.staggeredList(
-                              position: index,
-                              duration: const Duration(milliseconds: 500),
-                              child: SlideAnimation(
-                                verticalOffset: 50.0,
-                                child: FadeInAnimation(
-                                  child: Container(
-                                    margin: const EdgeInsets.only(bottom: 16),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(16),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withAlpha(13),
-                                          blurRadius: 8,
-                                          offset: const Offset(0, 2),
-                                        ),
-                                      ],
-                                    ),
-                                    child: InkWell(
-                                      borderRadius: BorderRadius.circular(16),
-                                      onTap: () {
-                                        Map<String, dynamic> normalizedData =
-                                            _prepareDataForDetailView(
-                                                data, doc.id);
-                                        Get.toNamed(
-                                          Routes.DETAIL_PRESENSI,
-                                          arguments: normalizedData,
-                                        );
-                                      },
-                                      child: Row(
-                                        children: [
-                                          // Date circle
-                                          Container(
-                                            width: 80,
-                                            padding: const EdgeInsets.all(16),
-                                            child: Container(
-                                              padding: const EdgeInsets.all(8),
-                                              decoration: BoxDecoration(
-                                                color:
-                                                    Colors.blue.withAlpha(26),
-                                                shape: BoxShape.circle,
-                                              ),
-                                              child: Center(
-                                                child: Text(
-                                                  dayOfMonth,
-                                                  style: const TextStyle(
-                                                    fontSize: 24,
-                                                    fontWeight: FontWeight.bold,
-                                                    color: Colors.blue,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                          // Content area
-                                          Expanded(
-                                            child: Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      vertical: 16),
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Row(
-                                                    mainAxisAlignment:
-                                                        MainAxisAlignment
-                                                            .spaceBetween,
-                                                    children: [
-                                                      Column(
-                                                        crossAxisAlignment:
-                                                            CrossAxisAlignment
-                                                                .start,
-                                                        children: [
-                                                          Text(
-                                                            dayName,
-                                                            style: TextStyle(
-                                                              fontSize: 16,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .bold,
-                                                              color: Colors
-                                                                  .black87,
-                                                            ),
-                                                          ),
-                                                          const SizedBox(
-                                                              height: 4),
-                                                          Text(
-                                                            fullDate,
-                                                            style: TextStyle(
-                                                              fontSize: 14,
-                                                              color: Colors
-                                                                  .grey[600],
-                                                            ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                      Padding(
-                                                        padding:
-                                                            const EdgeInsets
-                                                                .only(
-                                                                right: 16),
-                                                        child: Container(
-                                                          width: 12,
-                                                          height: 12,
-                                                          decoration:
-                                                              BoxDecoration(
-                                                            color: statusColor,
-                                                            shape:
-                                                                BoxShape.circle,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                  const SizedBox(height: 16),
-                                                  Row(
-                                                    children: [
-                                                      Expanded(
-                                                        child: Column(
-                                                          crossAxisAlignment:
-                                                              CrossAxisAlignment
-                                                                  .start,
-                                                          children: [
-                                                            Text(
-                                                              'Masuk',
-                                                              style: TextStyle(
-                                                                fontSize: 12,
-                                                                color: Colors
-                                                                    .grey[600],
-                                                              ),
-                                                            ),
-                                                            const SizedBox(
-                                                                height: 4),
-                                                            Row(
-                                                              children: [
-                                                                Icon(
-                                                                  Icons.login,
-                                                                  size: 16,
-                                                                  color: Colors
-                                                                      .blue,
-                                                                ),
-                                                                const SizedBox(
-                                                                    width: 4),
-                                                                Text(
-                                                                  checkInTime,
-                                                                  style:
-                                                                      TextStyle(
-                                                                    fontSize:
-                                                                        16,
-                                                                    fontWeight:
-                                                                        FontWeight
-                                                                            .bold,
-                                                                    color: Colors
-                                                                        .black87,
-                                                                  ),
-                                                                ),
-                                                              ],
-                                                            ),
-                                                          ],
-                                                        ),
-                                                      ),
-                                                      Expanded(
-                                                        child: Column(
-                                                          crossAxisAlignment:
-                                                              CrossAxisAlignment
-                                                                  .start,
-                                                          children: [
-                                                            Text(
-                                                              'Keluar',
-                                                              style: TextStyle(
-                                                                fontSize: 12,
-                                                                color: Colors
-                                                                    .grey[600],
-                                                              ),
-                                                            ),
-                                                            const SizedBox(
-                                                                height: 4),
-                                                            Row(
-                                                              children: [
-                                                                Icon(
-                                                                  Icons.logout,
-                                                                  size: 16,
-                                                                  color: Colors
-                                                                      .orange,
-                                                                ),
-                                                                const SizedBox(
-                                                                    width: 4),
-                                                                Text(
-                                                                  checkOutTime,
-                                                                  style:
-                                                                      TextStyle(
-                                                                    fontSize:
-                                                                        16,
-                                                                    fontWeight:
-                                                                        FontWeight
-                                                                            .bold,
-                                                                    color: Colors
-                                                                        .black87,
-                                                                  ),
-                                                                ),
-                                                              ],
-                                                            ),
-                                                          ],
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-            ),
-          ),
+                  );
+                },
+              ),
+            );
+          })),
         ],
       ),
-      bottomNavigationBar: buildBottomNavBar(),
     );
   }
 
-  // Helper method to build stat item
-  Widget _buildStatItem(
-    String label,
-    String value,
-    IconData icon,
-    Color color,
-  ) {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Icon(icon, color: color, size: 16),
-            const SizedBox(width: 4),
-            Text(
-              value,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
-              ),
+  void _showDatePicker(BuildContext context, bool isDark) {
+    Get.dialog(Dialog(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('history_period'.tr,
+              style:
+                  const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 300,
+            child: SfDateRangePicker(
+              controller: controller.dateRangePickerController,
+              selectionMode: DateRangePickerSelectionMode.range,
+              showActionButtons: true,
+              cancelText: 'cancel'.tr,
+              confirmText: 'ok'.tr,
+              onCancel: () => Get.back(),
+              onSubmit: (v) {
+                if (v is PickerDateRange && v.startDate != null) {
+                  controller.filterByDateRange(v.startDate, v.endDate);
+                  Get.back();
+                }
+              },
             ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(
-            color: Colors.white70,
-            fontSize: 11,
           ),
-        ),
-      ],
-    );
+        ]),
+      ),
+    ));
   }
+}
 
-  // Date range picker dialog
-  void _showDateRangePickerDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Pilih Periode',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                height: 300,
-                child: SfDateRangePicker(
-                  controller: controller.dateRangePickerController,
-                  view: DateRangePickerView.month,
-                  selectionMode: DateRangePickerSelectionMode.range,
-                  showActionButtons: true,
-                  cancelText: 'Batal',
-                  confirmText: 'Terapkan',
-                  onCancel: () {
-                    Get.back();
-                  },
-                  onSubmit: (value) {
-                    if (value != null && value is PickerDateRange) {
-                      controller.filterByDateRange(
-                          value.startDate, value.endDate);
-                      Get.back();
-                    }
-                  },
-                ),
-              ),
+class _StatsCard extends StatelessWidget {
+  final AllPresensiController controller;
+  final bool isDark;
+  const _StatsCard({required this.controller, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() => Container(
+          margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [FC.blue, FC.blueDark],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: FC.blue.withValues(alpha: isDark ? 0.18 : 0.3),
+                blurRadius: 14,
+                offset: const Offset(0, 6),
+              )
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget buildBottomNavBar() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        child: Container(
-          height: 70,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildNavBarItem(
-                icon: Icons.home_rounded,
-                label: 'Home',
-                index: 0,
-                isSelected: pageC.pageIndex.value == 0,
-              ),
-              _buildNavBarItem(
-                icon: Icons.history_rounded,
-                label: 'History',
-                index: 1,
-                isSelected: pageC.pageIndex.value == 1,
-              ),
-              _buildNavBarItem(
-                icon: Icons.person_rounded,
-                label: 'Profile',
-                index: 2,
-                isSelected: pageC.pageIndex.value == 2,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNavBarItem({
-    required IconData icon,
-    required String label,
-    required int index,
-    bool isSelected = false,
-  }) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => changePage(index),
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: EdgeInsets.all(isSelected ? 8 : 6),
+          child: Column(children: [
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              Text('history_period'.tr,
+                  style: const TextStyle(
+                      color: Colors.white70, fontWeight: FontWeight.w500)),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: isSelected
-                      ? Colors.blue.withValues(alpha: 0.1)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(20),
                 ),
-                child: Icon(
-                  icon,
-                  color: isSelected ? Colors.blue : Colors.grey.shade400,
-                  size: isSelected ? 26 : 24,
-                ),
+                child: Text(controller.filterText ?? 'history_all'.tr,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600)),
               ),
-              const SizedBox(height: 4),
-              AnimatedDefaultTextStyle(
-                duration: const Duration(milliseconds: 200),
-                style: TextStyle(
-                  fontSize: 12,
-                  color: isSelected ? Colors.blue : Colors.grey.shade500,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+            ]),
+            const SizedBox(height: 16),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
+              _Stat(
+                  'history_on_time'.tr,
+                  controller.onTimeCount.value.toString(),
+                  Icons.check_circle_outline,
+                  Colors.greenAccent),
+              _Stat('history_late'.tr, controller.lateCount.value.toString(),
+                  Icons.warning_outlined, Colors.orangeAccent),
+              _Stat(
+                  'history_absent'.tr,
+                  controller.absentCount.value.toString(),
+                  Icons.cancel_outlined,
+                  Colors.redAccent),
+            ]),
+          ]),
+        ));
+  }
+}
+
+class _Stat extends StatelessWidget {
+  final String label, value;
+  final IconData icon;
+  final Color color;
+  const _Stat(this.label, this.value, this.icon, this.color);
+
+  @override
+  Widget build(BuildContext context) => Column(children: [
+        Row(children: [
+          Icon(icon, color: color, size: 15),
+          const SizedBox(width: 4),
+          Text(value,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 20)),
+        ]),
+        const SizedBox(height: 3),
+        Text(label,
+            style: const TextStyle(color: Colors.white70, fontSize: 11)),
+      ]);
+}
+
+class _PresenceCard extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final bool isDark;
+  final Color statusColor;
+  final VoidCallback onTap;
+  const _PresenceCard({
+    required this.data,
+    required this.isDark,
+    required this.statusColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = isDark ? FC.cardDark : Colors.white;
+    final border = isDark ? FC.borderDark : FC.borderLight;
+    final tp = isDark ? FC.textDark : FC.textLight;
+    final ts = isDark ? FC.textSecDark : FC.textSecLight;
+
+    DateTime? date;
+    try {
+      date = DateTime.parse(data['date'] ?? '');
+    } catch (_) {}
+
+    final dayNum = date != null ? DateFormat('d').format(date) : '--';
+    final dayName = date != null ? DateFormat('EEEE').format(date) : '—';
+    final fullDate =
+        date != null ? DateFormat('MMMM d, yyyy').format(date) : '--';
+
+    String inTime = '--:--', outTime = '--:--';
+    try {
+      final ms = data['masuk'] as Map?;
+      final ds = ms?['date'] as String? ?? ms?['datetime'] as String?;
+      if (ds != null) inTime = DateFormat.Hm().format(DateTime.parse(ds));
+    } catch (_) {}
+    try {
+      final ks = data['keluar'] as Map?;
+      final ds = ks?['date'] as String? ?? ks?['datetime'] as String?;
+      if (ds != null) outTime = DateFormat.Hm().format(DateTime.parse(ds));
+    } catch (_) {}
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: border),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Row(children: [
+            // Date circle
+            Container(
+              width: 70,
+              padding: const EdgeInsets.all(14),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: FC.blue.withValues(alpha: 0.08),
+                  shape: BoxShape.circle,
                 ),
-                child: Text(label),
+                child: Text(dayNum,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: FC.blue,
+                    )),
               ),
-            ],
-          ),
+            ),
+            Expanded(
+                child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                            Text(dayName,
+                                style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: tp)),
+                            Text(fullDate,
+                                style: TextStyle(fontSize: 12, color: ts)),
+                          ])),
+                      Container(
+                        width: 10,
+                        height: 10,
+                        margin: const EdgeInsets.only(right: 16),
+                        decoration: BoxDecoration(
+                            color: statusColor, shape: BoxShape.circle),
+                      ),
+                    ]),
+                    const SizedBox(height: 10),
+                    Row(children: [
+                      Icon(Icons.login, size: 15, color: FC.success),
+                      const SizedBox(width: 4),
+                      Text(inTime,
+                          style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: tp)),
+                      const SizedBox(width: 20),
+                      Icon(Icons.logout, size: 15, color: FC.warning),
+                      const SizedBox(width: 4),
+                      Text(outTime,
+                          style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: tp)),
+                    ]),
+                  ]),
+            )),
+          ]),
         ),
       ),
     );
-  }
-
-  void changePage(int index) {
-    pageC.changePage(index);
-    switch (index) {
-      case 0:
-        Get.offAllNamed(Routes.HOME);
-        break;
-      case 1:
-        Get.offAllNamed(Routes.ALL_PRESENSI);
-        break;
-      case 2:
-        Get.offAllNamed(Routes.PROFILE);
-        break;
-    }
-  }
-
-  // Helper method to prepare data structure for detail view
-  Map<String, dynamic> _prepareDataForDetailView(
-      Map<String, dynamic> originalData, String docId) {
-    // Use the controller's normalize method which has proper data handling
-    return controller.normalizePresenceData(originalData, docId);
   }
 }

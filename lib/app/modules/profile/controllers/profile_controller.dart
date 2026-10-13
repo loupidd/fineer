@@ -20,6 +20,20 @@ class ProfileController extends GetxController {
   // Bind to notification service state
   RxBool get notificationsEnabled => notificationService.isNotificationEnabled;
 
+
+  // Bridge getters used by profile_view
+  RxInt get presentDays => RxInt(attendanceSummary['totalPresent'] as int? ?? 0);
+  RxInt get lateDays    => RxInt(attendanceSummary['lateEntries'] as int? ?? 0);
+
+  // streamUser used by profile_view
+  Stream<DocumentSnapshot<Map<String, dynamic>>> streamUser() {
+    final uid = auth.currentUser!.uid;
+    return firestore.collection('pegawai').doc(uid).snapshots();
+  }
+
+  // logout alias used by profile_view
+  Future<void> logout() => signOut();
+
   @override
   void onInit() {
     super.onInit();

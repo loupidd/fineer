@@ -1,399 +1,187 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:get/get.dart';
-import 'package:logger/logger.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
-final _logger = Logger();
-
-// Top-level function for background messages
-@pragma('vm:entry-point')
-Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  _logger.i('Handling background message: ${message.messageId}');
-}
-
 class NotificationService extends GetxService {
-  static NotificationService get instance => Get.find<NotificationService>();
+  static const String _wib = 'Asia/Jakarta';
+  // Schedule 4 weeks of individual absolute alarms (no matchDateTimeComponents)
+  static const int _weeksAhead = 4;
 
-  final FirebaseMessaging _fcm = FirebaseMessaging.instance;
-  final FlutterLocalNotificationsPlugin _localNotifications =
-      FlutterLocalNotificationsPlugin();
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final _plugin = FlutterLocalNotificationsPlugin();
+  final isNotificationEnabled = false.obs;
 
-  final RxBool isNotificationEnabled = false.obs;
+  @override
+  Future<void> onInit() async {
+    super.onInit();
+    tz.initializeTimeZones();
 
-  Future<NotificationService> init() async {
-    try {
-      // Initialize timezone
-      tz.initializeTimeZones();
-      tz.setLocalLocation(tz.getLocation('Asia/Jakarta'));
+    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const ios = DarwinInitializationSettings(
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
+    );
+    await _plugin.initialize(
+      const InitializationSettings(android: android, iOS: ios),
+    );
 
-      // Request permissions
-      await _requestPermissions();
-
-      // Initialize local notifications
-      await _initializeLocalNotifications();
-
-      // Initialize FCM
-      await _initializeFCM();
-
-      // Load user preference
-      await _loadNotificationPreference();
-
-      _logger.i('NotificationService initialized successfully');
-    } catch (e) {
-      _logger.e('Error initializing NotificationService', error: e);
-    }
-    return this;
+    final enabled = await _isEnabled();
+    isNotificationEnabled.value = enabled;
+    if (enabled) await scheduleWeekdayNotifications();
   }
 
-  Future<void> _requestPermissions() async {
-    // Request notification permission
-    final notificationStatus = await Permission.notification.request();
-
-    if (notificationStatus.isGranted) {
-      _logger.i('Notification permission granted');
-
-      // Request exact alarm permission for Android 12+ (critical for scheduled notifications)
-      if (await Permission.scheduleExactAlarm.isDenied) {
-        final alarmStatus = await Permission.scheduleExactAlarm.request();
-        _logger.i('Exact alarm permission: ${alarmStatus.isGranted}');
+  Future<void> toggleNotifications(bool enable) async {
+    if (enable) {
+      final granted = await _requestPermissions();
+      if (!granted) {
+        isNotificationEnabled.value = false;
+        return;
       }
-
-      // Request FCM permission (iOS)
-      NotificationSettings settings = await _fcm.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-        provisional: false,
-      );
-
-      _logger.i('FCM Permission status: ${settings.authorizationStatus}');
+      isNotificationEnabled.value = true;
+      await scheduleWeekdayNotifications();
     } else {
-      _logger.w('Notification permission denied');
+      isNotificationEnabled.value = false;
+      await _plugin.cancelAll();
     }
   }
 
-  Future<void> _initializeLocalNotifications() async {
-    const androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosSettings = DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
-    );
+  // Schedule one alarm per occurrence for the next _weeksAhead weeks.
+  // Uses absolute TZDateTime with no matchDateTimeComponents for Android 12+.
+  Future<int> scheduleWeekdayNotifications() async {
+    await _plugin.cancelAll();
 
-    const initSettings = InitializationSettings(
-      android: androidSettings,
-      iOS: iosSettings,
-    );
+    final loc = tz.getLocation(_wib);
+    final now = tz.TZDateTime.now(loc);
+    final canExact = await _canScheduleExact();
 
-    await _localNotifications.initialize(
-      initSettings,
-      onDidReceiveNotificationResponse: _onNotificationTapped,
-    );
+    int scheduled = 0;
 
-    _logger.i('Local notifications initialized');
-  }
+    for (int week = 0; week < _weeksAhead; week++) {
+      for (int wd = DateTime.monday; wd <= DateTime.friday; wd++) {
+        final base = now.add(Duration(days: week * 7));
+        final daysUntil = (wd - base.weekday + 7) % 7;
 
-  Future<void> _initializeFCM() async {
-    // Handle background messages
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+        final dayBase = tz.TZDateTime(
+          loc,
+          base.year,
+          base.month,
+          base.day + daysUntil,
+        );
 
-    // Handle foreground messages
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      _logger.i('Received foreground message: ${message.notification?.title}');
-      _showLocalNotification(message);
-    });
+        final earlyTime = tz.TZDateTime(
+          loc,
+          dayBase.year,
+          dayBase.month,
+          dayBase.day,
+          7,
+          45,
+          0,
+        );
+        final lateTime = tz.TZDateTime(
+          loc,
+          dayBase.year,
+          dayBase.month,
+          dayBase.day,
+          8,
+          15,
+          0,
+        );
 
-    // Handle notification taps when app is in background
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      _logger.i('Notification opened app: ${message.notification?.title}');
-      _handleNotificationTap(message);
-    });
-
-    // Get FCM token
-    String? token = await _fcm.getToken();
-    if (token != null) {
-      _logger.i('FCM Token: $token');
-      await _saveFCMToken(token);
-    }
-
-    // Listen for token refresh
-    _fcm.onTokenRefresh.listen(_saveFCMToken);
-  }
-
-  Future<void> _saveFCMToken(String token) async {
-    try {
-      final user = _auth.currentUser;
-      if (user != null) {
-        await _firestore.collection('pegawai').doc(user.uid).update({
-          'fcmToken': token,
-          'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
-        });
-        _logger.i('FCM token saved to Firestore');
-      }
-    } catch (e) {
-      _logger.e('Error saving FCM token', error: e);
-    }
-  }
-
-  Future<void> _loadNotificationPreference() async {
-    try {
-      final user = _auth.currentUser;
-      if (user != null) {
-        final doc = await _firestore.collection('pegawai').doc(user.uid).get();
-        isNotificationEnabled.value =
-            doc.data()?['notificationsEnabled'] ?? false;
-
-        if (isNotificationEnabled.value) {
-          await scheduleWeekdayNotifications();
-        }
-      }
-    } catch (e) {
-      _logger.e('Error loading notification preference', error: e);
-    }
-  }
-
-  Future<void> toggleNotifications(bool enabled) async {
-    try {
-      final user = _auth.currentUser;
-      if (user != null) {
-        await _firestore.collection('pegawai').doc(user.uid).update({
-          'notificationsEnabled': enabled,
-        });
-
-        isNotificationEnabled.value = enabled;
-
-        if (enabled) {
-          await scheduleWeekdayNotifications();
-          Get.snackbar(
-            'Notifications Enabled',
-            'You will receive daily reminders at 08:00 WIB',
-            snackPosition: SnackPosition.BOTTOM,
-            backgroundColor: Get.theme.primaryColor,
-            colorText: Get.theme.colorScheme.onPrimary,
+        if (earlyTime.isAfter(now)) {
+          await _scheduleAbsolute(
+            id: _alarmId(week, wd, 0),
+            title: 'Pengingat Absensi',
+            body: 'Jangan lupa absen pagi sebelum jam 08:00',
+            scheduledDate: earlyTime,
+            canExact: canExact,
           );
-        } else {
-          await cancelAllNotifications();
-          Get.snackbar(
-            'Notifications Disabled',
-            'Daily reminders have been turned off',
-            snackPosition: SnackPosition.BOTTOM,
+          scheduled++;
+        }
+
+        if (lateTime.isAfter(now)) {
+          await _scheduleAbsolute(
+            id: _alarmId(week, wd, 1),
+            title: 'Absen Terakhir!',
+            body: 'Ini pengingat terakhir — segera lakukan absensi',
+            scheduledDate: lateTime,
+            canExact: canExact,
           );
-        }
-
-        _logger.i('Notifications ${enabled ? "enabled" : "disabled"}');
-      }
-    } catch (e) {
-      _logger.e('Error toggling notifications', error: e);
-      Get.snackbar(
-        'Error',
-        'Failed to update notification settings',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Get.theme.colorScheme.error,
-        colorText: Get.theme.colorScheme.onError,
-      );
-    }
-  }
-
-  Future<void> scheduleWeekdayNotifications() async {
-    try {
-      // Cancel existing notifications first
-      await _localNotifications.cancelAll();
-
-      _logger.i('Starting to schedule weekday notifications...');
-
-      final location = tz.getLocation('Asia/Jakarta');
-      final now = tz.TZDateTime.now(location);
-
-      // Schedule for Monday to Friday (1-5)
-      for (int weekday = DateTime.monday;
-          weekday <= DateTime.friday;
-          weekday++) {
-        try {
-          await _scheduleDailyNotification(weekday, now, location);
-          _logger.i(
-              'Successfully scheduled notification for ${_getWeekdayName(weekday)}');
-        } catch (e) {
-          _logger.e(
-              'Failed to schedule notification for ${_getWeekdayName(weekday)}',
-              error: e);
+          scheduled++;
         }
       }
-
-      // Verify scheduled notifications
-      final pendingNotifications =
-          await _localNotifications.pendingNotificationRequests();
-      _logger.i('Total pending notifications: ${pendingNotifications.length}');
-      for (var notification in pendingNotifications) {
-        _logger.i(
-            'Pending notification ID: ${notification.id}, Title: ${notification.title}');
-      }
-
-      _logger.i(
-          'Completed scheduling weekday notifications (Mon-Fri at 08:00 WIB)');
-    } catch (e) {
-      _logger.e('Error scheduling notifications', error: e);
-      rethrow;
     }
+
+    return scheduled;
   }
 
-  Future<void> _scheduleDailyNotification(
-      int weekday, tz.TZDateTime now, tz.Location location) async {
-    // Find next occurrence of this weekday at 08:00
-    tz.TZDateTime scheduledDate = tz.TZDateTime(
-      location,
-      now.year,
-      now.month,
-      now.day,
-      8, // 08:00 WIB
-      0,
-      0,
-    );
+  int _alarmId(int week, int weekday, int slot) =>
+      week * 100 + weekday * 10 + slot;
 
-    // Adjust to next occurrence of the target weekday
-    while (scheduledDate.weekday != weekday || scheduledDate.isBefore(now)) {
-      scheduledDate = scheduledDate.add(const Duration(days: 1));
-    }
-
+  Future<void> _scheduleAbsolute({
+    required int id,
+    required String title,
+    required String body,
+    required tz.TZDateTime scheduledDate,
+    required bool canExact,
+  }) async {
     const androidDetails = AndroidNotificationDetails(
-      'attendance_reminder',
-      'Attendance Reminders',
-      channelDescription: 'Daily reminders to mark attendance',
+      'fineer_attendance',
+      'Pengingat Absensi',
+      channelDescription: 'Notifikasi pengingat absensi harian',
       importance: Importance.high,
       priority: Priority.high,
       icon: '@mipmap/ic_launcher',
-      enableLights: true,
-      enableVibration: true,
-      playSound: true,
-      styleInformation: BigTextStyleInformation(''),
     );
-
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-    );
-
+    const iosDetails = DarwinNotificationDetails();
     const details = NotificationDetails(
       android: androidDetails,
       iOS: iosDetails,
     );
 
-    try {
-      await _localNotifications.zonedSchedule(
-        weekday, // Use weekday as ID (1-5 for Mon-Fri)
-        'Attendance Reminder',
-        'Don\'t forget to mark your attendance today! 📋',
-        scheduledDate,
-        details,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
-      );
-
-      _logger.i(
-          'Scheduled notification for ${_getWeekdayName(weekday)} at ${scheduledDate.toString()}');
-    } catch (e) {
-      _logger.e('Error in zonedSchedule for ${_getWeekdayName(weekday)}',
-          error: e);
-      rethrow;
-    }
-  }
-
-  String _getWeekdayName(int weekday) {
-    const days = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-    return days[weekday];
-  }
-
-  Future<void> cancelAllNotifications() async {
-    await _localNotifications.cancelAll();
-    _logger.i('Cancelled all notifications');
-  }
-
-  Future<void> _showLocalNotification(RemoteMessage message) async {
-    const androidDetails = AndroidNotificationDetails(
-      'default_channel',
-      'Default Notifications',
-      channelDescription: 'General notifications',
-      importance: Importance.high,
-      priority: Priority.high,
-      icon: '@mipmap/ic_launcher',
-    );
-
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-    );
-
-    const details = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    await _localNotifications.show(
-      message.hashCode,
-      message.notification?.title ?? 'New Notification',
-      message.notification?.body ?? '',
+    await _plugin.zonedSchedule(
+      id,
+      title,
+      body,
+      scheduledDate,
       details,
-      payload: message.data.toString(),
+      androidScheduleMode: canExact
+          ? AndroidScheduleMode.alarmClock
+          : AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      // NO matchDateTimeComponents — absolute single alarm only
     );
   }
 
-  void _onNotificationTapped(NotificationResponse response) {
-    _logger.i('Notification tapped: ${response.payload}');
-    // Navigate to home or attendance screen
-    Get.toNamed('/home');
+  Future<bool> _isEnabled() async {
+    if (GetPlatform.isAndroid) {
+      return await Permission.notification.isGranted;
+    }
+    final granted = await _plugin
+        .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin>()
+        ?.checkPermissions();
+    return granted?.isEnabled ?? false;
   }
 
-  void _handleNotificationTap(RemoteMessage message) {
-    _logger.i('Handling notification tap: ${message.data}');
-    // Navigate based on notification data
-    Get.toNamed('/home');
+  Future<bool> _requestPermissions() async {
+    if (GetPlatform.isAndroid) {
+      final status = await Permission.notification.request();
+      return status.isGranted;
+    }
+    final granted = await _plugin
+        .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin>()
+        ?.requestPermissions(alert: true, badge: true, sound: true);
+    return granted ?? false;
   }
 
-  // Show immediate test notification
-  Future<void> showTestNotification() async {
-    const androidDetails = AndroidNotificationDetails(
-      'test_channel',
-      'Test Notifications',
-      channelDescription: 'Test notification channel',
-      importance: Importance.high,
-      priority: Priority.high,
-      icon: '@mipmap/ic_launcher',
-    );
-
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-    );
-
-    const details = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    await _localNotifications.show(
-      999,
-      'Test Notification',
-      'This is a test notification from Fineer!',
-      details,
-    );
-
-    _logger.i('Test notification shown');
-  }
-
-  // Get list of scheduled notifications
-  Future<List<PendingNotificationRequest>> getScheduledNotifications() async {
-    return await _localNotifications.pendingNotificationRequests();
+  Future<bool> _canScheduleExact() async {
+    if (!GetPlatform.isAndroid) return false;
+    final impl = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    return await impl?.canScheduleExactNotifications() ?? false;
   }
 }

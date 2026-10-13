@@ -1,621 +1,478 @@
+import 'package:fineer/app/theme/app_theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
-import '../controllers/detail_presensi_controller.dart';
 import 'package:intl/intl.dart';
+import '../controllers/detail_presensi_controller.dart';
 
 class DetailPresensiView extends GetView<DetailPresensiController> {
   const DetailPresensiView({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? FC.bgDark : const Color(0xFFF0F6FF);
+
     return Scaffold(
-      backgroundColor: Colors.grey[50],
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        foregroundColor: Colors.blue,
-        title: const Text(
-          'Detail Presensi',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        centerTitle: true,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, size: 20),
-          onPressed: () => Get.back(),
-        ),
-      ),
+      backgroundColor: bg,
+      appBar: AppBar(title: Text('detail_title'.tr)),
       body: Obx(() {
         if (controller.isLoading.value) {
-          return const Center(child: CircularProgressIndicator());
+          return const Center(
+              child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation(FC.blue),
+                  strokeWidth: 2.5));
         }
-
-        // Show error message if available
         if (controller.errorMessage.value != null) {
-          return Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.error_outline,
-                  color: Colors.red,
-                  size: 48,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Error',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                    color: Colors.red[700],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 32),
-                  child: Text(
-                    controller.errorMessage.value!,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.grey[700],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
+          return _ErrorState(
+              message: controller.errorMessage.value!, isDark: isDark);
         }
-
         if (controller.presenceData.value == null) {
-          return const Center(child: Text('Data tidak ditemukan'));
+          return Center(
+              child: Text('Data tidak ditemukan',
+                  style: TextStyle(
+                      color: isDark ? FC.textSecDark : FC.textSecLight)));
         }
-
-        final data = controller.presenceData.value!;
-
-        // Make sure required fields exist
-        if (data["date"] == null) {
-          return const Center(
-            child: Text('Data tanggal tidak ditemukan'),
-          );
-        }
-
-        // Helper function to get date string from either "date" or "datetime" field
-        String? getDateString(Map<String, dynamic>? dataMap) {
-          if (dataMap == null) return null;
-          // Try to get the date from either "date" or "datetime" field
-          return dataMap["date"] as String? ?? dataMap["datetime"] as String?;
-        }
-
-        // Safely parse the date
-        DateTime? parseDate(String? dateStr) {
-          if (dateStr == null) return null;
-          try {
-            return DateTime.parse(dateStr);
-          } catch (e) {
-            return null;
-          }
-        }
-
-        // Parse the main date
-        final DateTime? date = parseDate(data["date"] as String?);
-        if (date == null) {
-          return const Center(
-            child: Text('Format tanggal tidak valid'),
-          );
-        }
-
-        // Calculate duration if both check-in and check-out exist
-        String calculateDuration() {
-          if (data["masuk"] != null && data["keluar"] != null) {
-            final String? masukDateStr =
-                getDateString(data["masuk"] as Map<String, dynamic>?);
-            final String? keluarDateStr =
-                getDateString(data["keluar"] as Map<String, dynamic>?);
-
-            final DateTime? masuk = parseDate(masukDateStr);
-            final DateTime? keluar = parseDate(keluarDateStr);
-
-            if (masuk != null && keluar != null) {
-              final Duration duration = keluar.difference(masuk);
-              final int hours = duration.inHours;
-              final int minutes = duration.inMinutes % 60;
-              return '$hours jam $minutes menit';
-            }
-          }
-          return '-';
-        }
-
-        // Calculate late duration if check-in is after 8:15 AM
-        String calculateLateDuration() {
-          if (data["masuk"] != null) {
-            final String? masukDateStr =
-                getDateString(data["masuk"] as Map<String, dynamic>?);
-            final DateTime? masuk = parseDate(masukDateStr);
-
-            if (masuk != null) {
-              final DateTime expectedTime =
-                  DateTime(masuk.year, masuk.month, masuk.day, 8, 15);
-
-              if (masuk.isAfter(expectedTime)) {
-                final Duration lateDuration = masuk.difference(expectedTime);
-                final int hours = lateDuration.inHours;
-                final int minutes = lateDuration.inMinutes % 60;
-
-                if (hours > 0) {
-                  return '$hours jam $minutes menit';
-                } else {
-                  return '$minutes menit';
-                }
-              }
-            }
-          }
-          return '';
-        }
-
-        final bool isLate = calculateLateDuration().isNotEmpty;
-
-        return SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Date Card with Gradient
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFF2196F3), Color(0xFF0D47A1)],
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    children: [
-                      Text(
-                        DateFormat('EEEE').format(date),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w500,
-                          fontSize: 14,
-                          color: Colors.white70,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        DateFormat('d MMMM y').format(date),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                // Summary Card
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withAlpha(10),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      const Text(
-                        'Ringkasan',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: Colors.blue,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          // Check In Summary
-                          Expanded(
-                            child: Column(
-                              children: [
-                                const Icon(
-                                  Icons.login_rounded,
-                                  color: Colors.green,
-                                  size: 24,
-                                ),
-                                const SizedBox(height: 8),
-                                const Text(
-                                  'Masuk',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Column(
-                                  children: [
-                                    Text(
-                                      () {
-                                        final masukData = data["masuk"]
-                                            as Map<String, dynamic>?;
-                                        if (masukData == null) return "--:--";
-
-                                        final dateStr =
-                                            getDateString(masukData);
-                                        if (dateStr == null) return "--:--";
-
-                                        final parsedDate = parseDate(dateStr);
-                                        if (parsedDate == null) return "--:--";
-
-                                        return DateFormat.Hm()
-                                            .format(parsedDate);
-                                      }(),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                    if (isLate)
-                                      Container(
-                                        margin: const EdgeInsets.only(top: 4),
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: Colors.red.withAlpha(30),
-                                          borderRadius:
-                                              BorderRadius.circular(4),
-                                        ),
-                                        child: Text(
-                                          'Terlambat ${calculateLateDuration()}',
-                                          style: const TextStyle(
-                                            color: Colors.red,
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-
-                          // Divider
-                          Container(
-                            height: 40,
-                            width: 1,
-                            color: Colors.grey[300],
-                          ),
-
-                          // Check Out Summary
-                          Expanded(
-                            child: Column(
-                              children: [
-                                const Icon(
-                                  Icons.logout_rounded,
-                                  color: Colors.red,
-                                  size: 24,
-                                ),
-                                const SizedBox(height: 8),
-                                const Text(
-                                  'Keluar',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  () {
-                                    final keluarData =
-                                        data["keluar"] as Map<String, dynamic>?;
-                                    if (keluarData == null) return "-";
-
-                                    final dateStr = getDateString(keluarData);
-                                    if (dateStr == null) return "-";
-
-                                    final parsedDate = parseDate(dateStr);
-                                    if (parsedDate == null) return "-";
-
-                                    return DateFormat.Hm().format(parsedDate);
-                                  }(),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 16),
-                      const Divider(),
-                      const SizedBox(height: 8),
-
-                      // Late Status
-                      if (isLate)
-                        Container(
-                          width: double.infinity,
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.symmetric(
-                              vertical: 6, horizontal: 10),
-                          decoration: BoxDecoration(
-                            color: Colors.red.withAlpha(20),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: Colors.red.withAlpha(50)),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.warning_amber_rounded,
-                                color: Colors.red,
-                                size: 16,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Terlambat ${calculateLateDuration()} dari jadwal (08:15)',
-                                  style: const TextStyle(
-                                    color: Colors.red,
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                      // Duration
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(
-                            Icons.timer_outlined,
-                            color: Colors.amber,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          const Text(
-                            'Durasi:',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            calculateDuration(),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                // Detail Cards
-                const Padding(
-                  padding: EdgeInsets.only(left: 4, bottom: 12),
-                  child: Text(
-                    'Detail Kehadiran',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
-
-                // Check In Details
-                _buildDetailCard(
-                  title: 'Masuk',
-                  iconData: Icons.login_rounded,
-                  iconColor: Colors.green,
-                  details: [
-                    DetailItem(
-                      icon: Icons.access_time_rounded,
-                      label: 'Waktu',
-                      value: () {
-                        final masukData =
-                            data["masuk"] as Map<String, dynamic>?;
-                        if (masukData == null) return "-";
-
-                        final dateStr = getDateString(masukData);
-                        if (dateStr == null) return "-";
-
-                        final parsedDate = parseDate(dateStr);
-                        if (parsedDate == null) return "-";
-
-                        return DateFormat.jms().format(parsedDate);
-                      }(),
-                    ),
-                    DetailItem(
-                      icon: Icons.location_on_outlined,
-                      label: 'Posisi',
-                      value:
-                          '${data["masuk"]?["lat"]?.toString() ?? '-'}, ${data["masuk"]?["long"]?.toString() ?? '-'}',
-                    ),
-                    DetailItem(
-                      icon: Icons.check_circle_outline,
-                      label: 'Status',
-                      value: data["masuk"]?["status"] ?? "-",
-                    ),
-                    DetailItem(
-                      icon: Icons.home_work_outlined,
-                      label: 'Alamat',
-                      value: data["masuk"]?["address"] ?? "-",
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 16),
-
-                // Check Out Details
-                _buildDetailCard(
-                  title: 'Keluar',
-                  iconData: Icons.logout_rounded,
-                  iconColor: Colors.red,
-                  details: [
-                    DetailItem(
-                      icon: Icons.access_time_rounded,
-                      label: 'Waktu',
-                      value: () {
-                        final keluarData =
-                            data["keluar"] as Map<String, dynamic>?;
-                        if (keluarData == null) return "-";
-
-                        final dateStr = getDateString(keluarData);
-                        if (dateStr == null) return "-";
-
-                        final parsedDate = parseDate(dateStr);
-                        if (parsedDate == null) return "-";
-
-                        return DateFormat.jms().format(parsedDate);
-                      }(),
-                    ),
-                    DetailItem(
-                      icon: Icons.location_on_outlined,
-                      label: 'Posisi',
-                      value:
-                          '${data["keluar"]?["lat"]?.toString() ?? '-'}, ${data["keluar"]?["long"]?.toString() ?? '-'}',
-                    ),
-                    DetailItem(
-                      icon: Icons.check_circle_outline,
-                      label: 'Status',
-                      value: data["keluar"]?["status"] ?? "-",
-                    ),
-                    DetailItem(
-                      icon: Icons.home_work_outlined,
-                      label: 'Alamat',
-                      value: data["keluar"]?["address"] ?? "-",
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 20),
-              ],
-            ),
-          ),
-        );
+        return _DetailBody(
+            data: controller.presenceData.value!, isDark: isDark);
       }),
-    );
-  }
-
-  Widget _buildDetailCard({
-    required String title,
-    required IconData iconData,
-    required Color iconColor,
-    required List<DetailItem> details,
-  }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(10),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                iconData,
-                color: iconColor,
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                title,
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  color: iconColor,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          const Divider(height: 1),
-          const SizedBox(height: 16),
-          ...details.map((detail) => _buildDetailRow(detail)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDetailRow(DetailItem detail) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            detail.icon,
-            size: 16,
-            color: Colors.grey[600],
-          ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 70,
-            child: Text(
-              '${detail.label}:',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[600],
-              ),
-            ),
-          ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Text(
-              detail.value,
-              style: const TextStyle(
-                fontWeight: FontWeight.w500,
-                fontSize: 14,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
 
-class DetailItem {
-  final IconData icon;
-  final String label;
-  final String value;
+class _DetailBody extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final bool isDark;
+  const _DetailBody({required this.data, required this.isDark});
 
-  DetailItem({
-    required this.icon,
-    required this.label,
-    required this.value,
+  @override
+  Widget build(BuildContext context) {
+    // Date parsing helpers
+    String? getDateStr(Map? m) =>
+        m?['date'] as String? ?? m?['datetime'] as String?;
+    DateTime? parseDate(String? s) {
+      try {
+        return s != null ? DateTime.parse(s) : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final date = parseDate(data['date'] as String?);
+    final masukRaw = data['masuk'] as Map?;
+    final keluarRaw = data['keluar'] as Map?;
+    final masukDt = parseDate(getDateStr(masukRaw));
+    final keluarDt = parseDate(getDateStr(keluarRaw));
+    final officeName = data['office'] as String? ?? '';
+
+    // Late calculation (08:15 WIB)
+    String lateDuration = '';
+    if (masukDt != null) {
+      final schedule =
+          DateTime(masukDt.year, masukDt.month, masukDt.day, 8, 15);
+      if (masukDt.isAfter(schedule)) {
+        final d = masukDt.difference(schedule);
+        lateDuration = d.inHours > 0
+            ? '${d.inHours}j ${d.inMinutes % 60}m'
+            : '${d.inMinutes}m';
+      }
+    }
+
+    // Work duration
+    String duration = '-';
+    if (masukDt != null && keluarDt != null) {
+      final d = keluarDt.difference(masukDt);
+      duration = '${d.inHours}j ${d.inMinutes % 60}m';
+    }
+
+    if (date == null) {
+      return Center(
+          child: Text('Format tanggal tidak valid',
+              style:
+                  TextStyle(color: isDark ? FC.textSecDark : FC.textSecLight)));
+    }
+
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.all(20),
+      child: Column(children: [
+        // Date banner — full gradient
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 18),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [FC.blue, FC.blueDark],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(children: [
+            if (officeName.isNotEmpty)
+              Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(officeName,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    )),
+              ),
+            Text(DateFormat('EEEE').format(date),
+                style: const TextStyle(color: Colors.white70, fontSize: 14)),
+            const SizedBox(height: 4),
+            Text(DateFormat('d MMMM y').format(date),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                )),
+          ]),
+        ),
+        const SizedBox(height: 16),
+
+        // Summary card
+        _SummaryCard(
+          masukDt: masukDt,
+          keluarDt: keluarDt,
+          lateDuration: lateDuration,
+          duration: duration,
+          isDark: isDark,
+        ),
+        const SizedBox(height: 16),
+
+        // Detail header
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 12),
+            child: Row(children: [
+              Container(
+                  width: 4,
+                  height: 16,
+                  decoration: BoxDecoration(
+                    color: FC.blue,
+                    borderRadius: BorderRadius.circular(2),
+                  )),
+              const SizedBox(width: 8),
+              Text('detail_kehadiran'.tr,
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w700)),
+            ]),
+          ),
+        ),
+
+        // Check-in detail card
+        _DetailCard(
+          title: 'detail_masuk'.tr,
+          icon: Icons.login_rounded,
+          color: FC.success,
+          isDark: isDark,
+          entries: masukRaw != null
+              ? [
+                  _DetailEntry(Icons.access_time_rounded, 'detail_time'.tr,
+                      masukDt != null ? DateFormat.jms().format(masukDt) : '-'),
+                  _DetailEntry(Icons.location_on_outlined, 'detail_location'.tr,
+                      '${masukRaw['lat'] ?? '-'}, ${masukRaw['long'] ?? '-'}',
+                      copyable: true),
+                  _DetailEntry(Icons.check_circle_outline, 'detail_status'.tr,
+                      masukRaw['status']?.toString() ?? '-'),
+                  _DetailEntry(Icons.home_work_outlined, 'Alamat',
+                      masukRaw['address']?.toString() ?? '-'),
+                ]
+              : [],
+        ),
+        const SizedBox(height: 14),
+
+        // Check-out detail card
+        _DetailCard(
+          title: 'detail_keluar'.tr,
+          icon: Icons.logout_rounded,
+          color: FC.warning,
+          isDark: isDark,
+          entries: keluarRaw != null
+              ? [
+                  _DetailEntry(
+                      Icons.access_time_rounded,
+                      'detail_time'.tr,
+                      keluarDt != null
+                          ? DateFormat.jms().format(keluarDt)
+                          : '-'),
+                  _DetailEntry(Icons.location_on_outlined, 'detail_location'.tr,
+                      '${keluarRaw['lat'] ?? '-'}, ${keluarRaw['long'] ?? '-'}',
+                      copyable: true),
+                  _DetailEntry(Icons.check_circle_outline, 'detail_status'.tr,
+                      keluarRaw['status']?.toString() ?? '-'),
+                  _DetailEntry(Icons.home_work_outlined, 'Alamat',
+                      keluarRaw['address']?.toString() ?? '-'),
+                ]
+              : [],
+        ),
+        const SizedBox(height: 24),
+      ]),
+    );
+  }
+}
+
+class _SummaryCard extends StatelessWidget {
+  final DateTime? masukDt, keluarDt;
+  final String lateDuration, duration;
+  final bool isDark;
+  const _SummaryCard({
+    required this.masukDt,
+    required this.keluarDt,
+    required this.lateDuration,
+    required this.duration,
+    required this.isDark,
   });
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = isDark ? FC.cardDark : Colors.white;
+    final border = isDark ? FC.borderDark : FC.borderLight;
+    final tp = isDark ? FC.textDark : FC.textLight;
+    final ts = isDark ? FC.textSecDark : FC.textSecLight;
+    final isLate = lateDuration.isNotEmpty;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: border),
+      ),
+      child: Column(children: [
+        Text('detail_summary'.tr,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: FC.blue,
+            )),
+        const SizedBox(height: 16),
+        Row(children: [
+          // Masuk
+          Expanded(
+              child: Column(children: [
+            const Icon(Icons.login_rounded, color: FC.success, size: 24),
+            const SizedBox(height: 6),
+            Text('detail_masuk'.tr,
+                style: TextStyle(
+                    fontSize: 13, color: ts, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 4),
+            Text(masukDt != null ? DateFormat.Hm().format(masukDt!) : '--:--',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: tp,
+                )),
+            if (isLate)
+              Container(
+                margin: const EdgeInsets.only(top: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: FC.error.withValues(alpha: isDark ? 0.15 : 0.08),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text('Terlambat $lateDuration',
+                    style: const TextStyle(
+                      color: FC.error,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    )),
+              ),
+          ])),
+          Container(width: 1, height: 60, color: border),
+          // Keluar
+          Expanded(
+              child: Column(children: [
+            const Icon(Icons.logout_rounded, color: FC.warning, size: 24),
+            const SizedBox(height: 6),
+            Text('detail_keluar'.tr,
+                style: TextStyle(
+                    fontSize: 13, color: ts, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 4),
+            Text(keluarDt != null ? DateFormat.Hm().format(keluarDt!) : '-',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: tp,
+                )),
+          ])),
+        ]),
+        if (isLate) ...[
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            decoration: BoxDecoration(
+              color: FC.error.withValues(alpha: isDark ? 0.12 : 0.07),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: FC.error.withValues(alpha: 0.25)),
+            ),
+            child: Row(children: [
+              const Icon(Icons.warning_amber_rounded,
+                  color: FC.error, size: 16),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: Text(
+                'Terlambat $lateDuration ${'detail_schedule'.tr}',
+                style: const TextStyle(
+                  color: FC.error,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              )),
+            ]),
+          ),
+        ],
+        const Divider(height: 24),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          const Icon(Icons.timer_outlined, color: FC.warning, size: 20),
+          const SizedBox(width: 8),
+          Text('detail_duration'.tr,
+              style: TextStyle(fontWeight: FontWeight.w500, color: ts)),
+          const SizedBox(width: 6),
+          Text(duration, style: const TextStyle(fontWeight: FontWeight.w700)),
+        ]),
+      ]),
+    );
+  }
+}
+
+class _DetailEntry {
+  final IconData icon;
+  final String label, value;
+  final bool copyable;
+  const _DetailEntry(this.icon, this.label, this.value,
+      {this.copyable = false});
+}
+
+class _DetailCard extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Color color;
+  final bool isDark;
+  final List<_DetailEntry> entries;
+  const _DetailCard({
+    required this.title,
+    required this.icon,
+    required this.color,
+    required this.isDark,
+    required this.entries,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = isDark ? FC.cardDark : Colors.white;
+    final border = isDark ? FC.borderDark : FC.borderLight;
+    final tp = isDark ? FC.textDark : FC.textLight;
+    final ts = isDark ? FC.textSecDark : FC.textSecLight;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+            color: entries.isEmpty ? border : color.withValues(alpha: 0.2)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: color, size: 19),
+          ),
+          const SizedBox(width: 12),
+          Text(title,
+              style: TextStyle(
+                  fontSize: 15, fontWeight: FontWeight.w700, color: tp)),
+        ]),
+        if (entries.isEmpty) ...[
+          const SizedBox(height: 14),
+          Center(
+              child: Text('Tidak ada data',
+                  style: TextStyle(fontSize: 13, color: ts))),
+        ] else ...[
+          Divider(height: 24, color: border),
+          ...entries.map((e) => _EntryRow(entry: e, isDark: isDark)),
+        ],
+      ]),
+    );
+  }
+}
+
+class _EntryRow extends StatelessWidget {
+  final _DetailEntry entry;
+  final bool isDark;
+  const _EntryRow({required this.entry, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    final ts = isDark ? FC.textSecDark : FC.textSecLight;
+    final tp = isDark ? FC.textDark : FC.textLight;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(entry.icon, size: 15, color: ts),
+        const SizedBox(width: 10),
+        SizedBox(
+            width: 68,
+            child: Text('${entry.label}:',
+                style: TextStyle(fontSize: 13, color: ts))),
+        const SizedBox(width: 4),
+        Expanded(
+            child: Text(entry.value,
+                style: TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w500, color: tp))),
+        if (entry.copyable)
+          GestureDetector(
+            onTap: () {
+              Clipboard.setData(ClipboardData(text: entry.value));
+              Get.snackbar('Disalin', entry.value,
+                  snackPosition: SnackPosition.BOTTOM,
+                  duration: const Duration(seconds: 2));
+            },
+            child: Padding(
+              padding: const EdgeInsets.only(left: 6),
+              child: Icon(Icons.copy_rounded, size: 14, color: ts),
+            ),
+          ),
+      ]),
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  final String message;
+  final bool isDark;
+  const _ErrorState({required this.message, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.error_outline,
+                color: FC.error.withValues(alpha: 0.5), size: 48),
+            const SizedBox(height: 12),
+            Text(message,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    color: isDark ? FC.textSecDark : FC.textSecLight,
+                    fontSize: 14)),
+          ]),
+        ),
+      );
 }

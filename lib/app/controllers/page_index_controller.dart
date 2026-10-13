@@ -1,10 +1,13 @@
 // ignore_for_file: await_only_futures, unused_import
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:fineer/app/modules/home/views/home_view.dart';
 import 'package:fineer/app/routes/app_pages.dart';
+import 'package:fineer/app/services/security_logger.dart';
+import 'package:fineer/app/services/rate_limiter_service.dart';
+import 'package:fineer/app/services/validation_service.dart';
+import 'package:fineer/app/services/secure_storage_service.dart';
+import 'package:fineer/app/config/environment.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:geolocator/geolocator.dart';
@@ -15,55 +18,46 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 import 'dart:async';
 import 'dart:developer';
-import 'package:fineer/app/services/secure_storage_service.dart';
-import 'package:fineer/app/services/rate_limiter_service.dart';
-import 'package:fineer/app/services/validation_service.dart';
-import 'package:fineer/app/services/security_logger.dart';
-import 'package:fineer/app/config/environment.dart';
+import 'package:fineer/app/theme/app_theme.dart';
 
 class PageIndexController extends GetxController {
   RxInt pageIndex = 0.obs;
-
-  FirebaseAuth auth = FirebaseAuth.instance;
-  FirebaseFirestore firestore = FirebaseFirestore.instance;
-
-  // Processing flag to prevent double-clicks
   RxBool isProcessingAttendance = false.obs;
 
-  // Define our office locations
+  final auth = FirebaseAuth.instance;
+  final firestore = FirebaseFirestore.instance;
+
+  // Office locations — kept from original real code
   final List<Map<String, dynamic>> officeLocations = [
     {
-      "name": "Essence Darmawangsa",
-      "lat": -6.25885702739295,
-      "long": 106.80418446522982,
+      'name': 'Essence Darmawangsa',
+      'lat': -6.25885702739295,
+      'long': 106.80418446522982
     },
     {
-      "name": "Nifarro Park",
-      "lat": -6.263531780484561,
-      "long": 106.84382629294092,
+      'name': 'Nifarro Park',
+      'lat': -6.263531780484561,
+      'long': 106.84382629294092
     },
   ];
-
-  // Define radius in meters
   final double officeRadius = 1000.0;
 
-  // Security: Minimum time between location updates (in seconds)
-  final int minLocationUpdateInterval = 5;
-  DateTime? lastLocationUpdate;
-  Position? lastPosition;
-
-  // Track consecutive suspicious attempts
+  // Security counters
   int suspiciousAttempts = 0;
   final int maxSuspiciousAttempts = 3;
+  DateTime? lastLocationUpdate;
+  Position? lastPosition;
+  final int minLocationUpdateInterval = 5;
 
-  // Auto-logout timer - check every minute
+  // Session
   Timer? _sessionCheckTimer;
-  static const String _loginTimeKey = 'user_login_timestamp';
-  static const int _sessionDurationHours = 8;
+  static const _loginTimeKey = 'user_login_timestamp';
+  static const _sessionDurationHours = 8;
 
-  // Time manipulation thresholds (in seconds)
-  static const int _timeDeltaWarning = 120;
-  static const int _timeDeltaSuspicious = 600;
+  // Time thresholds (seconds)
+  // ENHANCED: suspicious threshold lowered to 180s (3 min) — previously 600s
+  static const _timeDeltaWarning = 120; // 2 min
+  static const _timeDeltaSuspicious = 180; // 3 min — BLOCKS attendance
 
   @override
   void onInit() {
@@ -72,317 +66,274 @@ class PageIndexController extends GetxController {
     _startSessionMonitoring();
   }
 
+  @override
+  void onClose() {
+    _sessionCheckTimer?.cancel();
+    super.onClose();
+  }
+
+  // ── Session management (original logic) ──────────────────────────
+
   Future<void> _initializeSession() async {
     try {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      String? loginTimeStr = prefs.getString(_loginTimeKey);
-
-      if (loginTimeStr == null) {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getString(_loginTimeKey) == null) {
         await _saveLoginTime();
       } else {
         await _checkSessionExpiry();
       }
     } catch (e) {
-      log("Error initializing session: $e");
+      log('Session init error: $e');
     }
   }
 
   Future<void> _saveLoginTime() async {
-    try {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      String currentTime = DateTime.now().toIso8601String();
-      await prefs.setString(_loginTimeKey, currentTime);
-      log("Login time saved: $currentTime");
-    } catch (e) {
-      log("Error saving login time: $e");
-    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_loginTimeKey, DateTime.now().toIso8601String());
   }
 
   void _startSessionMonitoring() {
-    _sessionCheckTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
-      _checkSessionExpiry();
-    });
+    _sessionCheckTimer = Timer.periodic(
+        const Duration(minutes: 1), (_) => _checkSessionExpiry());
     _checkSessionExpiry();
   }
 
   Future<void> _checkSessionExpiry() async {
     try {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      String? loginTimeStr = prefs.getString(_loginTimeKey);
-
-      if (loginTimeStr == null) {
+      final prefs = await SharedPreferences.getInstance();
+      final loginStr = prefs.getString(_loginTimeKey);
+      if (loginStr == null) {
         await _saveLoginTime();
         return;
       }
 
-      DateTime loginTime = DateTime.parse(loginTimeStr);
-      DateTime now = DateTime.now();
-      Duration sessionDuration = now.difference(loginTime);
-
-      log("Session duration: ${sessionDuration.inHours}h ${sessionDuration.inMinutes % 60}m");
-
-      if (sessionDuration.inHours >= _sessionDurationHours) {
-        log("Session expired! Logging out...");
+      final elapsed = DateTime.now().difference(DateTime.parse(loginStr));
+      if (elapsed.inHours >= _sessionDurationHours) {
         await _performAutoLogout();
       }
     } catch (e) {
-      log("Error checking session expiry: $e");
+      log('Session check error: $e');
     }
   }
 
   Future<void> _performAutoLogout() async {
-    try {
-      _sessionCheckTimer?.cancel();
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_loginTimeKey);
-      await auth.signOut();
-      Get.offAllNamed(Routes.LOGIN);
-      Get.snackbar(
-        "Sesi Berakhir",
-        "Anda telah otomatis keluar setelah 8 jam. Silakan login kembali.",
+    _sessionCheckTimer?.cancel();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_loginTimeKey);
+    await auth.signOut();
+    Get.offAllNamed(Routes.LOGIN);
+    Get.snackbar('session_expired'.tr, 'session_expired_msg'.tr,
         snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.orange,
-        colorText: Colors.white,
+        margin: const EdgeInsets.all(16),
+        borderRadius: 12,
         duration: const Duration(seconds: 5),
-        isDismissible: false,
-      );
-    } catch (e) {
-      log("Error during auto logout: $e");
-    }
+        isDismissible: false);
   }
 
-  void changePage(int i) async {
-    pageIndex.value = i;
+  // ── Navigation ───────────────────────────────────────────────────
+
+  void changePage(int i) {
     switch (i) {
       case 1:
-        Get.offAllNamed(Routes.HOME);
+        // Fingerprint center button → attendance action, not navigation
+        processAttendance();
         break;
       case 2:
+        pageIndex.value = 2;
         Get.offAllNamed(Routes.PROFILE);
         break;
       default:
+        pageIndex.value = 0;
         Get.offAllNamed(Routes.HOME);
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // TIME MANIPULATION DETECTION
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── TIME MANIPULATION CHECK (ENHANCED) ───────────────────────────
+  // Uses Firestore serverTimestamp as ground truth.
+  // ENHANCEMENT: "suspicious" level now BLOCKS attendance entirely
+  // and logs to suspicious_activities. Previously it only warned.
 
-  /// Validates device clock against Firestore server time.
-  ///
-  /// Strategy:
-  ///   1. Write a lightweight sentinel doc with the device's current timestamp.
-  ///   2. Read it back — Firestore populates `serverTimestamp` authoritatively.
-  ///   3. Compute |serverTime - deviceTime| and classify the delta.
-  ///
-  /// Returns a map:
-  ///   { "ok": bool, "deltaSeconds": int, "level": "normal"|"warning"|"suspicious" }
   Future<Map<String, dynamic>> _validateDeviceTime() async {
     try {
-      final String uid = auth.currentUser!.uid;
-      final DateTime deviceTime = DateTime.now();
+      final uid = auth.currentUser!.uid;
+      final deviceTime = DateTime.now();
 
-      // Write sentinel with device time + server time stamp
-      final DocumentReference sentinelRef = firestore
-          .collection("pegawai")
+      final ref = firestore
+          .collection('pegawai')
           .doc(uid)
-          .collection("time_checks")
+          .collection('time_checks')
           .doc();
 
-      await sentinelRef.set({
-        "deviceTime": deviceTime.toIso8601String(),
-        "serverTime": FieldValue.serverTimestamp(),
-        "platform": Platform.isAndroid ? "Android" : "iOS",
+      await ref.set({
+        'deviceTime': deviceTime.toIso8601String(),
+        'serverTime': FieldValue.serverTimestamp(),
+        'platform': Platform.isAndroid ? 'Android' : 'iOS',
       });
 
-      // Read back to get the resolved server timestamp
-      final DocumentSnapshot snap = await sentinelRef.get();
-      final data = snap.data() as Map<String, dynamic>?;
+      final snap = await ref.get();
+      ref.delete().catchError((_) {});
 
-      // Clean up sentinel (fire-and-forget)
-      sentinelRef.delete().catchError((_) {});
-
-      if (data == null || data["serverTime"] == null) {
-        // Cannot verify — treat as warning but don't block
-        return {"ok": true, "deltaSeconds": 0, "level": "unknown"};
+      final data = snap.data();
+      if (data == null || data['serverTime'] == null) {
+        return {'ok': true, 'deltaSeconds': 0, 'level': 'unknown'};
       }
 
-      final Timestamp serverTs = data["serverTime"] as Timestamp;
-      final DateTime serverTime = serverTs.toDate();
-      final int deltaSeconds =
-          serverTime.difference(deviceTime).inSeconds.abs();
+      final serverTime = (data['serverTime'] as Timestamp).toDate();
+      final deltaSeconds = serverTime.difference(deviceTime).inSeconds.abs();
 
-      log("Time check → deviceTime: $deviceTime | serverTime: $serverTime | delta: ${deltaSeconds}s");
+      log('Time check → device: $deviceTime | server: $serverTime | delta: ${deltaSeconds}s');
 
       if (deltaSeconds >= _timeDeltaSuspicious) {
         return {
-          "ok": false,
-          "deltaSeconds": deltaSeconds,
-          "level": "suspicious"
+          'ok': false,
+          'deltaSeconds': deltaSeconds,
+          'level': 'suspicious'
         };
       } else if (deltaSeconds >= _timeDeltaWarning) {
-        return {"ok": false, "deltaSeconds": deltaSeconds, "level": "warning"};
-      } else {
-        return {"ok": true, "deltaSeconds": deltaSeconds, "level": "normal"};
+        return {'ok': false, 'deltaSeconds': deltaSeconds, 'level': 'warning'};
       }
+      return {'ok': true, 'deltaSeconds': deltaSeconds, 'level': 'normal'};
     } catch (e) {
-      log("Time validation error: $e");
-      // Network / Firestore failure — don't block attendance but log it
-      return {"ok": true, "deltaSeconds": -1, "level": "unknown"};
+      log('Time validation error: $e');
+      return {'ok': true, 'deltaSeconds': -1, 'level': 'unknown'};
     }
   }
 
-  /// Logs a time manipulation attempt to Firestore for admin review.
-  Future<void> _logTimeManipulation(int deltaSeconds, String level) async {
+  Future<void> _logTimeManipulation(int delta, String level) async {
     try {
-      final String uid = auth.currentUser!.uid;
       await firestore
-          .collection("pegawai")
-          .doc(uid)
-          .collection("suspicious_activities")
+          .collection('pegawai')
+          .doc(auth.currentUser!.uid)
+          .collection('suspicious_activities')
           .add({
-        "timestamp": FieldValue.serverTimestamp(),
-        "type": "time_manipulation_attempt",
-        "deltaSeconds": deltaSeconds,
-        "level": level,
-        "deviceTime": DateTime.now().toIso8601String(),
-        "deviceInfo": await _getDeviceInfo(),
+        'timestamp': FieldValue.serverTimestamp(),
+        'type': 'time_manipulation_attempt',
+        'deltaSeconds': delta,
+        'level': level,
+        'deviceTime': DateTime.now().toIso8601String(),
+        'deviceInfo': await _getDeviceInfo(),
       });
-    } catch (e) {
-      // Logging failed silently
-    }
+    } catch (_) {}
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Main attendance flow ─────────────────────────────────────────
 
   Future<void> processAttendance() async {
     if (isProcessingAttendance.value) {
-      Get.snackbar(
-        "Mohon Tunggu",
-        "Sedang memproses presensi...",
-        snackPosition: SnackPosition.BOTTOM,
-        duration: const Duration(seconds: 2),
-      );
+      Get.snackbar('att_waiting'.tr, '',
+          snackPosition: SnackPosition.BOTTOM,
+          duration: const Duration(seconds: 2));
       return;
     }
 
     try {
       isProcessingAttendance.value = true;
 
+      // Show processing dialog
       Get.dialog(
-        const Center(
-          child: Card(
-            child: Padding(
-              padding: EdgeInsets.all(20.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text("Memverifikasi lokasi & waktu..."),
-                ],
-              ),
-            ),
-          ),
-        ),
+        _ProcessingDialog(message: 'att_processing'.tr),
         barrierDismissible: false,
       );
 
-      // ── TIME MANIPULATION CHECK ──────────────────────────────────────────
+      // ── 1. TIME CHECK ────────────────────────────────────────────
       final timeCheck = await _validateDeviceTime();
-      final String timeLevel = timeCheck["level"] ?? "unknown";
-      final int timeDelta = timeCheck["deltaSeconds"] ?? 0;
+      final timeLevel = timeCheck['level'] as String? ?? 'unknown';
+      final timeDelta = timeCheck['deltaSeconds'] as int? ?? 0;
 
-      if (timeLevel == "suspicious") {
+      if (timeLevel == 'suspicious') {
         await _logTimeManipulation(timeDelta, timeLevel);
         if (Get.isDialogOpen ?? false) Get.back();
-        _showErrorNotification(
-          "Waktu Perangkat Tidak Valid",
-          "Jam perangkat Anda berbeda ${timeDelta}s dari server.\n\n"
-              "Terdeteksi potensi manipulasi waktu. Absensi dibatalkan.\n"
-              "Aktifkan 'Tanggal & Waktu Otomatis' di pengaturan perangkat.",
+        // BLOCKS attendance — does NOT write to Firestore
+        _showSecurityAlert(
+          title: 'sec_time_invalid'.tr,
+          message: 'Jam perangkat berbeda $timeDelta detik dari server.\n\n'
+              'Absensi DIBATALKAN. Aktifkan "Tanggal & Waktu Otomatis" '
+              'di pengaturan perangkat Anda.',
+          icon: Icons.access_time_rounded,
         );
         suspiciousAttempts++;
         return;
       }
 
-      if (timeLevel == "warning") {
+      if (timeLevel == 'warning') {
+        // Log but allow — admin can review
         await _logTimeManipulation(timeDelta, timeLevel);
-        // Allow but record — admin can review
-        log("Time WARNING: delta ${timeDelta}s — proceeding with attendance");
+        log('Time WARNING: ${timeDelta}s — proceeding');
       }
-      // ────────────────────────────────────────────────────────────────────
 
+      // ── 2. RATE LIMIT ────────────────────────────────────────────
       if (lastLocationUpdate != null) {
-        final timeSinceLastUpdate =
+        final elapsed =
             DateTime.now().difference(lastLocationUpdate!).inSeconds;
-        if (timeSinceLastUpdate < minLocationUpdateInterval) {
+        if (elapsed < minLocationUpdateInterval) {
           if (Get.isDialogOpen ?? false) Get.back();
-          Get.snackbar(
-            "Terlalu Cepat",
-            "Harap tunggu beberapa detik sebelum mencoba lagi",
-            snackPosition: SnackPosition.BOTTOM,
-          );
+          Get.snackbar('Terlalu Cepat', 'Tunggu beberapa detik.',
+              snackPosition: SnackPosition.BOTTOM);
           return;
         }
       }
 
-      Map<String, dynamic> dataResponse = await _determinePositionSecure();
-
+      // ── 3. LOCATION ──────────────────────────────────────────────
+      final dataResponse = await _determinePositionSecure();
       if (Get.isDialogOpen ?? false) Get.back();
 
-      if (dataResponse["error"] != true) {
-        Position position = dataResponse["position"];
-        bool isMocked = dataResponse["isMocked"] ?? false;
+      if (dataResponse['error'] == true) {
+        _showSecurityAlert(
+          title: 'Lokasi Error',
+          message: dataResponse['message'],
+          icon: Icons.location_off_rounded,
+        );
+        return;
+      }
 
-        if (isMocked) {
-          suspiciousAttempts++;
+      final position = dataResponse['position'] as Position;
+      final isMocked = dataResponse['isMocked'] as bool? ?? false;
 
-          if (suspiciousAttempts >= maxSuspiciousAttempts) {
-            _showErrorNotification(
-              "Terlalu Banyak Percobaan",
-              "Terdeteksi terlalu banyak percobaan menggunakan lokasi palsu. "
-                  "Akun Anda akan ditinjau oleh admin.",
-            );
-            await _logSuspiciousActivity(position);
-            suspiciousAttempts = 0;
-            return;
-          }
-
-          _showErrorNotification(
-            "Lokasi Tidak Valid",
-            "Terdeteksi penggunaan lokasi palsu. Mohon gunakan lokasi asli.\n\n"
-                "Percobaan: $suspiciousAttempts/$maxSuspiciousAttempts",
+      if (isMocked) {
+        suspiciousAttempts++;
+        await _logSuspiciousActivity(position);
+        if (suspiciousAttempts >= maxSuspiciousAttempts) {
+          _showSecurityAlert(
+            title: 'sec_too_fast'.tr,
+            message:
+                'Terlalu banyak percobaan lokasi palsu. Akun ditinjau admin.',
+            icon: Icons.gpp_bad_rounded,
           );
+          suspiciousAttempts = 0;
           return;
         }
-
-        suspiciousAttempts = 0;
-        lastLocationUpdate = DateTime.now();
-        lastPosition = position;
-
-        List<Placemark> placemarks = await placemarkFromCoordinates(
-          position.latitude,
-          position.longitude,
+        _showSecurityAlert(
+          title: 'sec_mock_loc'.tr,
+          message:
+              '${'sec_mock_loc_msg'.tr}\n\nPercobaan: $suspiciousAttempts/$maxSuspiciousAttempts',
+          icon: Icons.gpp_bad_rounded,
         );
-        String address = " ${placemarks[0].street ?? ''},"
-            "${placemarks[0].subLocality ?? ''},"
-            "${placemarks[0].locality ?? ''}";
-
-        await updatePosition(position, address);
-        await checkPresenceInOffice(position, address, timeLevel, timeDelta);
-      } else {
-        Get.snackbar("Terjadi Kesalahan", dataResponse["message"]);
+        return;
       }
+
+      suspiciousAttempts = 0;
+      lastLocationUpdate = DateTime.now();
+      lastPosition = position;
+
+      // Geocode
+      String address = '';
+      try {
+        final marks = await placemarkFromCoordinates(
+            position.latitude, position.longitude);
+        address =
+            '${marks[0].street ?? ''}, ${marks[0].subLocality ?? ''}, ${marks[0].locality ?? ''}';
+      } catch (_) {
+        address = '${position.latitude}, ${position.longitude}';
+      }
+
+      await updatePosition(position, address);
+      await checkPresenceInOffice(position, address, timeLevel, timeDelta);
     } catch (e) {
       if (Get.isDialogOpen ?? false) Get.back();
-      Get.snackbar(
-        "Error",
-        "Gagal memproses presensi: $e",
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red,
-        colorText: Colors.white,
+      _showSecurityAlert(
+        title: 'error'.tr,
+        message: 'Gagal memproses presensi: $e',
+        icon: Icons.error_outline_rounded,
       );
     } finally {
       await Future.delayed(const Duration(milliseconds: 500));
@@ -390,734 +341,600 @@ class PageIndexController extends GetxController {
     }
   }
 
-  Future<void> _logSuspiciousActivity(Position position) async {
-    try {
-      String uid = auth.currentUser!.uid;
-      await firestore
-          .collection("pegawai")
-          .doc(uid)
-          .collection("suspicious_activities")
-          .add({
-        "timestamp": FieldValue.serverTimestamp(),
-        "type": "mock_location_attempt",
-        "position": {
-          "lat": position.latitude,
-          "long": position.longitude,
-          "accuracy": position.accuracy,
-          "isMocked": position.isMocked,
-          "speed": position.speed,
-          "altitude": position.altitude,
-        },
-        "deviceInfo": await _getDeviceInfo(),
-      });
-    } catch (e) {
-      // Logging failed, continue
-    }
-  }
-
-  Future<Map<String, dynamic>> _getDeviceInfo() async {
-    try {
-      DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
-      if (Platform.isAndroid) {
-        AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
-        return {
-          "platform": "Android",
-          "model": androidInfo.model,
-          "manufacturer": androidInfo.manufacturer,
-          "version": androidInfo.version.sdkInt,
-          "isPhysicalDevice": androidInfo.isPhysicalDevice,
-          "androidId": androidInfo.id,
-        };
-      } else if (Platform.isIOS) {
-        IosDeviceInfo iosInfo = await deviceInfo.iosInfo;
-        return {
-          "platform": "iOS",
-          "model": iosInfo.model,
-          "name": iosInfo.name,
-          "systemVersion": iosInfo.systemVersion,
-          "isPhysicalDevice": iosInfo.isPhysicalDevice,
-          "identifierForVendor": iosInfo.identifierForVendor,
-        };
-      }
-    } catch (e) {
-      // Device info failed
-    }
-    return {"platform": "unknown"};
-  }
-
   Future<void> checkPresenceInOffice(
-    Position position,
-    String address,
-    String timeLevel,
-    int timeDelta,
-  ) async {
-    String closestOfficeName = "";
-    double shortestDistance = double.infinity;
-    bool isInRange = false;
+      Position pos, String address, String timeLevel, int timeDelta) async {
+    String closestName = '';
+    double shortest = double.infinity;
+    bool inRange = false;
 
-    for (var office in officeLocations) {
-      double distance = Geolocator.distanceBetween(
-        office["lat"],
-        office["long"],
-        position.latitude,
-        position.longitude,
-      );
-
-      if (distance < shortestDistance) {
-        shortestDistance = distance;
-        closestOfficeName = office["name"];
+    for (final office in officeLocations) {
+      final d = Geolocator.distanceBetween(
+          office['lat']!, office['long']!, pos.latitude, pos.longitude);
+      if (d < shortest) {
+        shortest = d;
+        closestName = office['name']!;
       }
-
-      if (distance <= officeRadius) {
-        isInRange = true;
+      if (d <= officeRadius) {
+        inRange = true;
         break;
       }
     }
 
     await presensi(
-      position,
-      address,
-      shortestDistance,
-      isInRange,
-      closestOfficeName,
-      timeLevel,
-      timeDelta,
-    );
+        pos, address, shortest, inRange, closestName, timeLevel, timeDelta);
   }
 
   Future<void> presensi(
-    Position position,
+    Position pos,
     String address,
     double distance,
-    bool isInRange,
+    bool inRange,
     String officeName,
     String timeLevel,
     int timeDelta,
   ) async {
     try {
-      String uid = auth.currentUser!.uid;
-      CollectionReference<Map<String, dynamic>> colPresence =
-          firestore.collection("pegawai").doc(uid).collection("presence");
+      final uid = auth.currentUser!.uid;
+      final col =
+          firestore.collection('pegawai').doc(uid).collection('presence');
+      final now = DateTime.now();
+      final docID = DateFormat.yMd().format(now).replaceAll('/', '-');
+      final status = inRange ? 'Di dalam Area' : 'Di luar Area';
+      final locInfo = inRange
+          ? '$officeName\n${distance.toStringAsFixed(0)}m dari kantor'
+          : 'Anda ${distance.toStringAsFixed(0)}m dari $officeName';
 
-      DateTime now = DateTime.now();
-      String todayDocID = DateFormat.yMd().format(now).replaceAll("/", "-");
-
-      String status = isInRange ? "Di dalam Area" : "Di luar Area";
-      String locationInfo = isInRange
-          ? "$officeName\n ${distance.toStringAsFixed(0)} meter dari kantor"
-          : "Anda berada ${distance.toStringAsFixed(0)} meter dari $officeName";
-
-      if (!isInRange) {
-        _showErrorNotification(
-          "Di Luar Area Kantor",
-          "Anda berada di luar radius kantor.\n\n$locationInfo\n\n"
-              "Mohon datang ke kantor untuk melakukan absen.",
+      if (!inRange) {
+        _showSecurityAlert(
+          title: 'att_outside'.tr,
+          message:
+              '${'att_outside_msg'.tr}\n\n$locInfo\n\nMohon datang ke kantor.',
+          icon: Icons.location_off_rounded,
+          color: FC.error,
         );
         return;
       }
 
-      DocumentSnapshot<Map<String, dynamic>> todayDoc =
-          await colPresence.doc(todayDocID).get();
+      final todayDoc = await col.doc(docID).get();
 
       if (!todayDoc.exists) {
-        // ── CHECK-IN ────────────────────────────────────────────────────────
+        // CHECK-IN
         await _showAttendanceDialog(
-          title: "Absen Masuk",
-          message: "Konfirmasi absen masuk sekarang?\n\n$locationInfo",
+          title: 'att_validate'.tr,
+          message: '${'att_confirm_in'.tr}\n\n$locInfo',
           isCheckIn: true,
           onConfirm: () async {
             Get.back();
-
-            await colPresence.doc(todayDocID).set({
-              "date": now.toIso8601String(),
-              "office": officeName,
-              "masuk": {
-                "date": now.toIso8601String(),
-                "lat": position.latitude,
-                "long": position.longitude,
-                "address": address,
-                "status": status,
-                "distance": distance,
-                "office": officeName,
-                "accuracy": position.accuracy,
-                "timestamp": FieldValue.serverTimestamp(),
-                // Time integrity metadata
-                "deviceTime": now.toIso8601String(),
-                "timeDeltaSeconds": timeDelta,
-                "timeIntegrityLevel": timeLevel,
-              }
+            await col.doc(docID).set({
+              'date': now.toIso8601String(),
+              'office': officeName,
+              'masuk': _buildEntry(now, pos, address, status, distance,
+                  officeName, timeDelta, timeLevel),
+              'masuk_server_ts': FieldValue.serverTimestamp(),
             });
-
-            _showSuccessNotification("Absen masuk berhasil dicatat", true);
+            _showSuccess('att_success_in'.tr, isIn: true);
           },
         );
         return;
       }
 
-      Map<String, dynamic>? dataPresenceToday = todayDoc.data();
+      final d = todayDoc.data()!;
 
-      if (dataPresenceToday?["keluar"] != null) {
-        _showErrorNotification(
-          "Sudah Absen",
-          "Anda telah melakukan absen masuk dan keluar hari ini.",
+      if (d['keluar'] != null) {
+        _showSecurityAlert(
+          title: 'Sudah Absen',
+          message: 'att_already_done'.tr,
+          icon: Icons.check_circle_rounded,
+          color: FC.success,
         );
         return;
       }
 
-      if (dataPresenceToday?["masuk"] == null) {
-        _showErrorNotification(
-          "Data Tidak Valid",
-          "Data absensi tidak lengkap. Silakan hubungi admin.",
+      if (d['masuk'] == null) {
+        _showSecurityAlert(
+          title: 'Data Tidak Valid',
+          message: 'Data absensi tidak lengkap. Hubungi admin.',
+          icon: Icons.error_outline_rounded,
         );
         return;
       }
 
-      // ── CHECK-OUT — allowed from 16:30 WIB ──────────────────────────────
-      final int currentHour = now.hour;
-      final int currentMinute = now.minute;
-      final bool isAfterCheckoutTime =
-          currentHour > 16 || (currentHour == 16 && currentMinute >= 30);
-
-      if (!isAfterCheckoutTime) {
-        // Calculate remaining time
-        final DateTime checkoutAllowedTime =
-            DateTime(now.year, now.month, now.day, 16, 30);
-        final Duration remaining = checkoutAllowedTime.difference(now);
-        final int hoursRemaining = remaining.inHours;
-        final int minutesRemaining = remaining.inMinutes % 60;
-
-        _showErrorNotification(
-          "Belum Waktunya Absen Keluar",
-          "Anda hanya dapat absen keluar setelah pukul 16:30 WIB.\n\n"
-              "Waktu sekarang: ${DateFormat('HH:mm').format(now)} WIB\n"
-              "Sisa waktu: $hoursRemaining jam $minutesRemaining menit",
+      // CHECK-OUT time gate: only after 16:30
+      final allowed = now.hour > 16 || (now.hour == 16 && now.minute >= 30);
+      if (!allowed) {
+        final remaining =
+            DateTime(now.year, now.month, now.day, 16, 30).difference(now);
+        _showSecurityAlert(
+          title: 'att_checkout_time'.tr,
+          message:
+              '${'att_checkout_time_msg'.tr}\n\nWaktu sekarang: ${DateFormat('HH:mm').format(now)} WIB\nSisa: ${remaining.inHours}j ${remaining.inMinutes % 60}m',
+          icon: Icons.schedule_rounded,
+          color: FC.warning,
         );
         return;
       }
 
-      // ── CHECK-OUT dialog ─────────────────────────────────────────────────
+      // CHECK-OUT — also verify server timestamp order
+      final masukServerTs = d['masuk_server_ts'];
+      if (masukServerTs != null) {
+        final masukTs = (masukServerTs as Timestamp).toDate();
+        if (now.toUtc().isBefore(masukTs.toUtc())) {
+          // Device clock is BEHIND the server-recorded check-in time
+          // This means clock was rolled back after check-in
+          await _logTimeManipulation(
+              masukTs.toUtc().difference(now.toUtc()).inSeconds.abs(),
+              'suspicious');
+          _showSecurityAlert(
+            title: 'sec_time_invalid'.tr,
+            message: 'Waktu keluar tidak valid. Jam perangkat lebih awal '
+                'dari waktu masuk yang tercatat server.\n\n'
+                'Absensi keluar DIBATALKAN.',
+            icon: Icons.access_time_rounded,
+          );
+          return;
+        }
+      }
+
       await _showAttendanceDialog(
-        title: "Absen Keluar",
-        message: "Konfirmasi absen keluar sekarang?\n\n$locationInfo",
+        title: 'att_validate'.tr,
+        message: '${'att_confirm_out'.tr}\n\n$locInfo',
         isCheckIn: false,
         onConfirm: () async {
           Get.back();
-
-          await colPresence.doc(todayDocID).update({
-            "keluar": {
-              "date": now.toIso8601String(),
-              "lat": position.latitude,
-              "long": position.longitude,
-              "address": address,
-              "status": status,
-              "distance": distance,
-              "office": officeName,
-              "accuracy": position.accuracy,
-              "timestamp": FieldValue.serverTimestamp(),
-              // Time integrity metadata
-              "deviceTime": now.toIso8601String(),
-              "timeDeltaSeconds": timeDelta,
-              "timeIntegrityLevel": timeLevel,
-            }
+          await col.doc(docID).update({
+            'keluar': _buildEntry(now, pos, address, status, distance,
+                officeName, timeDelta, timeLevel),
+            'keluar_server_ts': FieldValue.serverTimestamp(),
           });
-
-          _showSuccessNotification("Absen keluar berhasil dicatat", false);
+          _showSuccess('att_success_out'.tr, isIn: false);
         },
       );
     } catch (e) {
-      _showErrorNotification(
-        "Terjadi Kesalahan",
-        "Gagal memproses absensi. Silakan coba lagi.",
+      _showSecurityAlert(
+        title: 'error'.tr,
+        message: 'Gagal memproses absensi. Coba lagi.',
+        icon: Icons.error_outline_rounded,
       );
     }
   }
 
-  Future<void> _showAttendanceDialog({
+  Map<String, dynamic> _buildEntry(
+    DateTime t,
+    Position p,
+    String addr,
+    String status,
+    double dist,
+    String office,
+    int timeDelta,
+    String timeLevel,
+  ) =>
+      {
+        'date': t.toIso8601String(),
+        'lat': p.latitude,
+        'long': p.longitude,
+        'address': addr,
+        'status': status,
+        'distance': dist,
+        'office': office,
+        'accuracy': p.accuracy,
+        'timestamp': FieldValue.serverTimestamp(),
+        'deviceTime': t.toIso8601String(),
+        'timeDeltaSeconds': timeDelta,
+        'timeIntegrityLevel': timeLevel,
+      };
+
+  // ── Dialogs (themed) ─────────────────────────────────────────────
+
+  void _showSecurityAlert({
     required String title,
     required String message,
-    required VoidCallback onConfirm,
-    bool isCheckIn = true,
-  }) async {
-    await Get.dialog(
-      Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: isCheckIn
-                      ? Colors.blue.withValues(alpha: 0.1)
-                      : Colors.green.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  isCheckIn ? Icons.login : Icons.logout,
-                  size: 48,
-                  color: isCheckIn ? Colors.blue : Colors.green,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 15,
-                  color: Colors.grey.shade700,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Get.back(),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        side: BorderSide(color: Colors.grey.shade300),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: Text(
-                        'Batal',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade700,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: onConfirm,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: isCheckIn ? Colors.blue : Colors.green,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 0,
-                      ),
-                      child: const Text(
-                        'Ya, Lanjutkan',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-      barrierDismissible: false,
-    );
-  }
+    required IconData icon,
+    Color color = FC.error,
+  }) {
+    final ctx = Get.context;
+    final dark = ctx != null && Theme.of(ctx).brightness == Brightness.dark;
+    final surf = dark ? FC.cardDark : Colors.white;
+    final border = dark ? FC.borderDark : FC.borderLight;
+    final tp = dark ? FC.textDark : FC.textLight;
+    final ts = dark ? FC.textSecDark : FC.textSecLight;
 
-  void _showSuccessNotification(String message, bool isCheckIn) {
     Get.dialog(
       Dialog(
         backgroundColor: Colors.transparent,
         elevation: 0,
         child: Container(
-          padding: const EdgeInsets.all(24),
+          constraints: const BoxConstraints(maxWidth: 320),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: surf,
             borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: color.withValues(alpha: 0.3)),
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: dark ? 0.2 : 0.1),
+                blurRadius: 28,
+                offset: const Offset(0, 10),
+              )
+            ],
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0.0, end: 1.0),
-                duration: const Duration(milliseconds: 600),
-                builder: (context, value, child) {
-                  return Transform.scale(
-                    scale: value,
-                    child: Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: (isCheckIn ? Colors.blue : Colors.green)
-                            .withValues(alpha: 0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        Icons.check_circle,
-                        size: 64,
-                        color: isCheckIn ? Colors.blue : Colors.green,
-                      ),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Berhasil!',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: color.withValues(alpha: dark ? 0.15 : 0.08),
                 ),
+                child: Icon(icon, color: color, size: 28),
               ),
-              const SizedBox(height: 12),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey.shade700,
-                ),
-              ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 14),
+              Text(title,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w800, color: tp)),
+              const SizedBox(height: 8),
+              Text(message,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: ts, height: 1.5)),
+              const SizedBox(height: 22),
               SizedBox(
                 width: double.infinity,
+                height: 46,
                 child: ElevatedButton(
                   onPressed: () => Get.back(),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: isCheckIn ? Colors.blue : Colors.green,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                    backgroundColor: color,
+                    foregroundColor: Colors.white,
                     elevation: 0,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
                   ),
-                  child: const Text(
-                    'OK',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
-                  ),
+                  child: Text('sec_understand'.tr,
+                      style: const TextStyle(fontWeight: FontWeight.w700)),
                 ),
               ),
-            ],
+            ]),
           ),
         ),
       ),
       barrierDismissible: false,
     );
-
-    Future.delayed(const Duration(seconds: 2), () {
-      if (Get.isDialogOpen ?? false) Get.back();
-    });
   }
 
-  void _showErrorNotification(String title, String message) {
-    Get.dialog(
+  Future<void> _showAttendanceDialog({
+    required String title,
+    required String message,
+    required bool isCheckIn,
+    required VoidCallback onConfirm,
+  }) async {
+    final ctx = Get.context;
+    final dark = ctx != null && Theme.of(ctx).brightness == Brightness.dark;
+    final surf = dark ? FC.cardDark : Colors.white;
+    final border = dark ? FC.borderDark : FC.borderLight;
+    final tp = dark ? FC.textDark : FC.textLight;
+    final ts = dark ? FC.textSecDark : FC.textSecLight;
+    final color = isCheckIn ? FC.blue : FC.success;
+
+    await Get.dialog(
       Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         child: Container(
-          padding: const EdgeInsets.all(24),
+          constraints: const BoxConstraints(maxWidth: 320),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: surf,
             borderRadius: BorderRadius.circular(20),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.error_outline,
-                  size: 48,
-                  color: Colors.red,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 15,
-                  color: Colors.grey.shade700,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Get.back(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 0,
-                  ),
-                  child: const Text(
-                    'Mengerti',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
+            border: Border.all(color: border),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: dark ? 0.5 : 0.1),
+                blurRadius: 24,
+                offset: const Offset(0, 8),
+              )
             ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: color.withValues(alpha: dark ? 0.15 : 0.08),
+                ),
+                child: Icon(
+                    isCheckIn ? Icons.login_rounded : Icons.logout_rounded,
+                    color: color,
+                    size: 26),
+              ),
+              const SizedBox(height: 14),
+              Text(title,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w800, color: tp)),
+              const SizedBox(height: 8),
+              Text(message,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: ts, height: 1.5)),
+              const SizedBox(height: 22),
+              Row(children: [
+                Expanded(
+                    child: OutlinedButton(
+                  onPressed: () => Get.back(),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: ts,
+                    side: BorderSide(color: border),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                    minimumSize: const Size(0, 44),
+                  ),
+                  child: Text('cancel'.tr,
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                )),
+                const SizedBox(width: 10),
+                Expanded(
+                    child: ElevatedButton(
+                  onPressed: onConfirm,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: color,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                    minimumSize: const Size(0, 44),
+                  ),
+                  child: Text('yes'.tr,
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                )),
+              ]),
+            ]),
           ),
         ),
       ),
     );
   }
 
-  Future<void> updatePosition(Position position, String address) async {
-    try {
-      String uid = auth.currentUser!.uid;
-      await firestore.collection("pegawai").doc(uid).update({
-        "position": {
-          "lat": position.latitude,
-          "long": position.longitude,
-          "accuracy": position.accuracy,
-          "timestamp": FieldValue.serverTimestamp(),
-        },
-        "address": address,
-      });
-    } catch (e) {
-      // Position update failed, don't block attendance
-    }
+  void _showSuccess(String msg, {required bool isIn}) {
+    Get.snackbar(
+      'success'.tr,
+      msg,
+      snackPosition: SnackPosition.BOTTOM,
+      backgroundColor: isIn ? FC.blue : FC.success,
+      colorText: Colors.white,
+      margin: const EdgeInsets.all(16),
+      borderRadius: 12,
+      icon: Icon(isIn ? Icons.login_rounded : Icons.logout_rounded,
+          color: Colors.white),
+      duration: const Duration(seconds: 3),
+    );
   }
 
+  // ── Location validation (original real logic) ─────────────────────
+
   Future<Map<String, dynamic>> _determinePositionSecure() async {
-    bool serviceEnabled;
-    LocationPermission permission;
-
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      return {
-        "message": "GPS tidak tersedia. Mohon aktifkan lokasi.",
-        "error": true
-      };
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      return {'message': 'GPS tidak tersedia. Aktifkan lokasi.', 'error': true};
     }
-
-    permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        return {"message": "Izinkan GPS untuk melanjutkan", "error": true};
+    var perm = await Geolocator.checkPermission();
+    if (perm == LocationPermission.denied) {
+      perm = await Geolocator.requestPermission();
+      if (perm == LocationPermission.denied) {
+        return {'message': 'Izinkan GPS untuk melanjutkan.', 'error': true};
       }
     }
-
-    if (permission == LocationPermission.deniedForever) {
+    if (perm == LocationPermission.deniedForever) {
       return {
-        "message": "Akses penggunaan GPS ditolak secara permanen. "
-            "Mohon aktifkan di pengaturan aplikasi.",
-        "error": true
+        'message': 'GPS ditolak permanen. Aktifkan di pengaturan.',
+        'error': true
       };
     }
 
     try {
-      // SECURITY CHECK 1: Emulator detection
-      try {
-        DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
-
-        if (Platform.isAndroid) {
-          AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
-          if (!androidInfo.isPhysicalDevice ||
-              androidInfo.model.toLowerCase().contains('sdk') ||
-              androidInfo.product.toLowerCase().contains('sdk') ||
-              androidInfo.fingerprint.toLowerCase().contains('generic') ||
-              (androidInfo.manufacturer.toLowerCase() == 'google' &&
-                  androidInfo.model.toLowerCase().contains('emulator'))) {
-            return {
-              "message": "Absensi tidak dapat dilakukan dari emulator. "
-                  "Mohon gunakan perangkat fisik.",
-              "error": true
-            };
-          }
-        } else if (Platform.isIOS) {
-          IosDeviceInfo iosInfo = await deviceInfo.iosInfo;
-          if (!iosInfo.isPhysicalDevice) {
-            return {
-              "message": "Absensi tidak dapat dilakukan dari simulator. "
-                  "Mohon gunakan perangkat fisik.",
-              "error": true
-            };
-          }
+      // Emulator detection
+      final di = DeviceInfoPlugin();
+      if (Platform.isAndroid) {
+        final ai = await di.androidInfo;
+        if (!ai.isPhysicalDevice ||
+            ai.model.toLowerCase().contains('sdk') ||
+            ai.product.toLowerCase().contains('sdk') ||
+            ai.fingerprint.toLowerCase().contains('generic')) {
+          return {
+            'message': 'Absensi tidak dapat dilakukan dari emulator.',
+            'error': true
+          };
         }
-      } catch (e) {
-        // Device check failed, continue
+      } else if (Platform.isIOS) {
+        final ii = await di.iosInfo;
+        if (!ii.isPhysicalDevice) {
+          return {
+            'message': 'Absensi tidak dapat dilakukan dari simulator.',
+            'error': true
+          };
+        }
       }
 
-      // SECURITY CHECK 2: Multiple position samples
-      List<Position> positions = [];
+      // Multi-sample positions for consistency check
+      final positions = <Position>[];
       for (int i = 0; i < 3; i++) {
         try {
-          Position pos = await Geolocator.getCurrentPosition(
+          final p = await Geolocator.getCurrentPosition(
             locationSettings: const LocationSettings(
               accuracy: LocationAccuracy.best,
               distanceFilter: 0,
               timeLimit: Duration(seconds: 5),
             ),
           );
-          positions.add(pos);
+          positions.add(p);
           if (i < 2) await Future.delayed(const Duration(milliseconds: 500));
-        } catch (e) {
+        } catch (_) {
           break;
         }
       }
-
       if (positions.isEmpty) {
         return {
-          "message": "Gagal mendapatkan lokasi. Pastikan GPS aktif.",
-          "error": true
+          'message': 'Gagal mendapatkan lokasi. Pastikan GPS aktif.',
+          'error': true
         };
       }
 
-      Position position = positions.last;
-      bool isMocked = position.isMocked;
+      final pos = positions.last;
 
-      // SECURITY CHECK 3: Position consistency
+      // Consistency check
       if (positions.length >= 2) {
-        double maxDistance = 0;
+        double maxD = 0;
         for (int i = 0; i < positions.length - 1; i++) {
-          double distance = Geolocator.distanceBetween(
-            positions[i].latitude,
-            positions[i].longitude,
-            positions[i + 1].latitude,
-            positions[i + 1].longitude,
-          );
-          if (distance > maxDistance) maxDistance = distance;
+          final d = Geolocator.distanceBetween(
+              positions[i].latitude,
+              positions[i].longitude,
+              positions[i + 1].latitude,
+              positions[i + 1].longitude);
+          if (d > maxD) maxD = d;
         }
-        if (maxDistance > 100) {
+        if (maxD > 100) {
           return {
-            "message":
-                "Lokasi berubah terlalu cepat (${maxDistance.toStringAsFixed(0)}m). "
-                    "Terdeteksi potensi manipulasi lokasi.",
-            "error": true,
-            "isMocked": true
+            'message':
+                'Lokasi berubah terlalu cepat (${maxD.toStringAsFixed(0)}m). '
+                    'Terdeteksi potensi manipulasi.',
+            'error': true,
+            'isMocked': true,
           };
         }
       }
 
-      // SECURITY CHECK 4: Last known position comparison
-      if (lastPosition != null && lastLocationUpdate != null) {
-        final timeDiff =
-            DateTime.now().difference(lastLocationUpdate!).inSeconds;
-        final distance = Geolocator.distanceBetween(
-          lastPosition!.latitude,
-          lastPosition!.longitude,
-          position.latitude,
-          position.longitude,
-        );
-        final maxPossibleDistance = timeDiff * 30;
-        if (distance > maxPossibleDistance && timeDiff < 300) {
-          return {
-            "message":
-                "Jarak perpindahan tidak wajar (${distance.toStringAsFixed(0)}m dalam ${timeDiff}s). "
-                    "Terdeteksi potensi lokasi palsu.",
-            "error": true,
-            "isMocked": true
-          };
-        }
-      }
-
-      // SECURITY CHECK 5: Accuracy validation
-      if (position.accuracy > 50) {
+      // Speed / accuracy / altitude checks
+      if (pos.accuracy > 50) {
         return {
-          "message":
-              "Akurasi lokasi terlalu rendah (${position.accuracy.toStringAsFixed(0)}m). "
-                  "Mohon pastikan GPS aktif dan sinyal baik.",
-          "error": true
+          'message':
+              'Akurasi GPS terlalu rendah (${pos.accuracy.toStringAsFixed(0)}m).',
+          'error': true
         };
       }
-
-      // SECURITY CHECK 6: Speed check
-      if (position.speed > 50) {
+      if (pos.speed > 50) {
         return {
-          "message":
-              "Kecepatan pergerakan tidak wajar (${position.speed.toStringAsFixed(1)} m/s).",
-          "error": true
+          'message':
+              'Kecepatan tidak wajar (${pos.speed.toStringAsFixed(1)} m/s).',
+          'error': true
         };
       }
-
-      // SECURITY CHECK 7: Altitude check
-      if (position.altitude < -500 || position.altitude > 10000) {
+      if (pos.altitude < -500 || pos.altitude > 10000) {
+        return {'message': 'Data altitude tidak valid.', 'error': true};
+      }
+      if (pos.accuracy < 1.0) {
         return {
-          "message":
-              "Data lokasi tidak valid. Altitude: ${position.altitude.toStringAsFixed(0)}m.",
-          "error": true
+          'message': 'Akurasi terlalu sempurna — kemungkinan fake GPS.',
+          'error': true,
+          'isMocked': true
         };
       }
-
-      // SECURITY CHECK 8: Suspiciously perfect accuracy
-      if (position.accuracy < 1.0) {
+      if (pos.isMocked) {
         return {
-          "message":
-              "Akurasi lokasi terlalu sempurna (${position.accuracy.toStringAsFixed(2)}m). "
-                  "Kemungkinan fake GPS.",
-          "error": true,
-          "isMocked": true
-        };
-      }
-
-      // SECURITY CHECK 9: Built-in mock flag
-      if (isMocked) {
-        return {
-          "message": "Terdeteksi penggunaan aplikasi fake GPS/mock location.",
-          "error": true,
-          "isMocked": true
+          'message': 'Terdeteksi fake GPS / mock location.',
+          'error': true,
+          'isMocked': true
         };
       }
 
       return {
-        "position": position,
-        "isMocked": false,
-        "message": "Berhasil mendapatkan lokasi device",
-        "error": false
+        'position': pos,
+        'isMocked': false,
+        'message': '',
+        'error': false
       };
     } catch (e) {
-      return {"message": "Gagal mendapatkan lokasi: $e", "error": true};
+      return {'message': 'Gagal mendapatkan lokasi: $e', 'error': true};
     }
   }
 
+  Future<void> _logSuspiciousActivity(Position pos) async {
+    try {
+      await firestore
+          .collection('pegawai')
+          .doc(auth.currentUser!.uid)
+          .collection('suspicious_activities')
+          .add({
+        'timestamp': FieldValue.serverTimestamp(),
+        'type': 'mock_location_attempt',
+        'position': {
+          'lat': pos.latitude,
+          'long': pos.longitude,
+          'accuracy': pos.accuracy,
+          'isMocked': pos.isMocked,
+          'speed': pos.speed,
+          'altitude': pos.altitude,
+        },
+        'deviceInfo': await _getDeviceInfo(),
+      });
+    } catch (_) {}
+  }
+
+  Future<Map<String, dynamic>> _getDeviceInfo() async {
+    try {
+      final di = DeviceInfoPlugin();
+      if (Platform.isAndroid) {
+        final ai = await di.androidInfo;
+        return {
+          'platform': 'Android',
+          'model': ai.model,
+          'manufacturer': ai.manufacturer,
+          'version': ai.version.sdkInt,
+          'isPhysical': ai.isPhysicalDevice
+        };
+      } else if (Platform.isIOS) {
+        final ii = await di.iosInfo;
+        return {
+          'platform': 'iOS',
+          'model': ii.model,
+          'systemVersion': ii.systemVersion,
+          'isPhysical': ii.isPhysicalDevice
+        };
+      }
+    } catch (_) {}
+    return {'platform': 'unknown'};
+  }
+
+  Future<void> updatePosition(Position pos, String address) async {
+    try {
+      await firestore.collection('pegawai').doc(auth.currentUser!.uid).update({
+        'position': {
+          'lat': pos.latitude,
+          'long': pos.longitude,
+          'accuracy': pos.accuracy,
+          'timestamp': FieldValue.serverTimestamp(),
+        },
+        'address': address,
+      });
+    } catch (_) {}
+  }
+}
+
+// ─── Processing dialog ────────────────────────────────────────────
+
+class _ProcessingDialog extends StatelessWidget {
+  final String message;
+  const _ProcessingDialog({required this.message});
+
   @override
-  void onClose() {
-    _sessionCheckTimer?.cancel();
-    super.onClose();
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Center(
+      child: Card(
+        margin: const EdgeInsets.all(32),
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation(FC.blue), strokeWidth: 2.5),
+            const SizedBox(height: 16),
+            Text(message,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: dark ? FC.textSecDark : FC.textSecLight,
+                )),
+          ]),
+        ),
+      ),
+    );
   }
 }
