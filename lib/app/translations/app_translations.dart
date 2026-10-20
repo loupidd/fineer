@@ -47,6 +47,9 @@ class AppTranslations extends Translations {
           'att_confirm_out': 'Konfirmasi absen keluar sekarang?',
           'att_success_in': 'Absen masuk berhasil dicatat',
           'att_success_out': 'Absen keluar berhasil dicatat',
+          'att_queued':
+              'Tersimpan di perangkat. Akan dikirim otomatis saat online.',
+          'att_pending': 'Menunggu sinkronisasi',
           'att_already_done':
               'Anda telah melakukan absen masuk dan keluar hari ini',
           'att_outside': 'Di Luar Area Kantor',
@@ -156,6 +159,8 @@ class AppTranslations extends Translations {
           'att_confirm_out': 'Confirm check-out now?',
           'att_success_in': 'Check-in recorded successfully',
           'att_success_out': 'Check-out recorded successfully',
+          'att_queued': 'Saved on this device. Will sync automatically when online.',
+          'att_pending': 'Waiting to sync',
           'att_already_done': "You've already checked in and out today",
           'att_outside': 'Outside Office Area',
           'att_outside_msg': "You're outside the office radius.",

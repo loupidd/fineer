@@ -1,6 +1,7 @@
 // ignore_for_file: unused_local_variable
 
 import 'package:fineer/app/controllers/page_index_controller.dart';
+import 'package:fineer/app/services/clock_service.dart';
 import 'package:fineer/app/services/locale_service.dart';
 import 'package:fineer/app/services/notification_service.dart';
 import 'package:fineer/app/services/theme_service.dart';
@@ -23,6 +24,13 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await initializeDateFormatting();
+
+  // Explicit offline cache: attendance punches made without a connection are
+  // queued by the SDK (persisted across restarts) and delivered when online.
+  FirebaseFirestore.instance.settings = const Settings(
+    persistenceEnabled: true,
+    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+  );
 
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
@@ -89,6 +97,9 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _boot() async {
     await Future.delayed(const Duration(milliseconds: 2400));
+
+    // Seed the trusted-clock anchor (best effort, never blocks boot).
+    ClockService.seed();
 
     // 1. Version check
     final supported = await isSupportedVersion();
@@ -216,21 +227,32 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 }
 
-// ─── Session check — identical to original ───────────────────────
+// ─── Session check ───────────────────────
 
 Future<void> checkSessionDuration() async {
   final prefs = await SharedPreferences.getInstance();
   final loginTimestamp = prefs.getInt('loginTimestamp') ?? 0;
 
   if (loginTimestamp == 0) {
-    Get.offAllNamed(Routes.LOGIN);
+    // No session clock yet. If Firebase still has a signed-in user (login
+    // happened before the clock was written, or prefs were cleared), resume
+    // the session and start the clock instead of forcing a new login.
+    if (FirebaseAuth.instance.currentUser != null) {
+      await prefs.setInt(
+          'loginTimestamp', DateTime.now().millisecondsSinceEpoch);
+      Get.offAllNamed(Routes.HOME);
+    } else {
+      Get.offAllNamed(Routes.LOGIN);
+    }
     return;
   }
 
   final currentTime = DateTime.now().millisecondsSinceEpoch;
   const sessionLimit = 6 * 60 * 60 * 1000; // 6 hours
 
-  if ((currentTime - loginTimestamp) > sessionLimit) {
+  if ((currentTime - loginTimestamp) > sessionLimit &&
+      (await ClockService.check()).online) {
+    // (when offline, expiry is deferred so staff aren't locked out)
     await FirebaseAuth.instance.signOut();
     prefs.remove('loginTimestamp');
     Get.snackbar(
@@ -252,7 +274,7 @@ Future<void> checkSessionDuration() async {
   }
 }
 
-// ─── Version check — identical to original ───────────────────────
+// ─── Version check ───────────────────────
 
 Future<bool> isSupportedVersion() async {
   try {
@@ -267,7 +289,7 @@ Future<bool> isSupportedVersion() async {
   }
 }
 
-// ─── App lifecycle — identical to original ───────────────────────
+// ─── App lifecycle ───────────────────────
 
 class AppLifecycleObserver extends StatefulWidget {
   const AppLifecycleObserver({super.key});

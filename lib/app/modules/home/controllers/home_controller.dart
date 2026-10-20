@@ -93,7 +93,7 @@ class HomeController extends GetxController {
         .doc(uid)
         .collection("presence")
         .doc(todayID)
-        .snapshots();
+        .snapshots(includeMetadataChanges: true);
   }
 
   // Future to get today's presence once for optimized loading

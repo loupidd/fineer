@@ -6,6 +6,7 @@ import 'package:fineer/app/services/security_logger.dart';
 import 'package:fineer/app/services/rate_limiter_service.dart';
 import 'package:fineer/app/services/validation_service.dart';
 import 'package:fineer/app/services/secure_storage_service.dart';
+import 'package:fineer/app/services/clock_service.dart';
 import 'package:fineer/app/config/environment.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -54,10 +55,8 @@ class PageIndexController extends GetxController {
   static const _loginTimeKey = 'user_login_timestamp';
   static const _sessionDurationHours = 8;
 
-  // Time thresholds (seconds)
-  // ENHANCED: suspicious threshold lowered to 180s (3 min) — previously 600s
-  static const _timeDeltaWarning = 120; // 2 min
-  static const _timeDeltaSuspicious = 180; // 3 min — BLOCKS attendance
+  // Trusted time for the current attendance attempt (see ClockService).
+  ClockCheck? _clock;
 
   @override
   void onInit() {
@@ -109,6 +108,9 @@ class PageIndexController extends GetxController {
 
       final elapsed = DateTime.now().difference(DateTime.parse(loginStr));
       if (elapsed.inHours >= _sessionDurationHours) {
+        // Offline grace: signing out while offline would lock the employee out
+        // (login needs the network). Enforce expiry once back online.
+        if (!(await ClockService.check()).online) return;
         await _performAutoLogout();
       }
     } catch (e) {
@@ -148,60 +150,27 @@ class PageIndexController extends GetxController {
     }
   }
 
-  // ── TIME MANIPULATION CHECK (ENHANCED) ───────────────────────────
-  // Uses Firestore serverTimestamp as ground truth.
-  // ENHANCEMENT: "suspicious" level now BLOCKS attendance entirely
-  // and logs to suspicious_activities. Previously it only warned.
-
-  Future<Map<String, dynamic>> _validateDeviceTime() async {
+  // ── Commit helper ────────────────────────────────────────────────
+  // Firestore queues writes while offline, but the returned Future only
+  // completes once the SERVER acknowledges. Awaiting it offline hangs the UI.
+  // Online: await (8s cap). Offline: fire and forget; the SDK's persisted
+  // queue delivers it later. Returns true when confirmed by the server.
+  Future<bool> _commit(Future<void> write, {required bool online}) async {
+    if (!online) {
+      unawaited(write.then((_) {}, onError: (_) {}));
+      return false;
+    }
     try {
-      final uid = auth.currentUser!.uid;
-      final deviceTime = DateTime.now();
-
-      final ref = firestore
-          .collection('pegawai')
-          .doc(uid)
-          .collection('time_checks')
-          .doc();
-
-      await ref.set({
-        'deviceTime': deviceTime.toIso8601String(),
-        'serverTime': FieldValue.serverTimestamp(),
-        'platform': Platform.isAndroid ? 'Android' : 'iOS',
-      });
-
-      final snap = await ref.get();
-      ref.delete().catchError((_) {});
-
-      final data = snap.data();
-      if (data == null || data['serverTime'] == null) {
-        return {'ok': true, 'deltaSeconds': 0, 'level': 'unknown'};
-      }
-
-      final serverTime = (data['serverTime'] as Timestamp).toDate();
-      final deltaSeconds = serverTime.difference(deviceTime).inSeconds.abs();
-
-      log('Time check → device: $deviceTime | server: $serverTime | delta: ${deltaSeconds}s');
-
-      if (deltaSeconds >= _timeDeltaSuspicious) {
-        return {
-          'ok': false,
-          'deltaSeconds': deltaSeconds,
-          'level': 'suspicious'
-        };
-      } else if (deltaSeconds >= _timeDeltaWarning) {
-        return {'ok': false, 'deltaSeconds': deltaSeconds, 'level': 'warning'};
-      }
-      return {'ok': true, 'deltaSeconds': deltaSeconds, 'level': 'normal'};
-    } catch (e) {
-      log('Time validation error: $e');
-      return {'ok': true, 'deltaSeconds': -1, 'level': 'unknown'};
+      await write.timeout(const Duration(seconds: 8));
+      return true;
+    } on TimeoutException {
+      return false; // connection dropped mid-write; SDK keeps it queued
     }
   }
 
   Future<void> _logTimeManipulation(int delta, String level) async {
     try {
-      await firestore
+      firestore
           .collection('pegawai')
           .doc(auth.currentUser!.uid)
           .collection('suspicious_activities')
@@ -212,7 +181,7 @@ class PageIndexController extends GetxController {
         'level': level,
         'deviceTime': DateTime.now().toIso8601String(),
         'deviceInfo': await _getDeviceInfo(),
-      });
+      }).then((_) {}, onError: (_) {});
     } catch (_) {}
   }
 
@@ -236,12 +205,13 @@ class PageIndexController extends GetxController {
       );
 
       // ── 1. TIME CHECK ────────────────────────────────────────────
-      final timeCheck = await _validateDeviceTime();
-      final timeLevel = timeCheck['level'] as String? ?? 'unknown';
-      final timeDelta = timeCheck['deltaSeconds'] as int? ?? 0;
+      final clock = await ClockService.check();
+      _clock = clock;
+      final timeLevel = clock.level;
+      final timeDelta = clock.deltaSeconds < 0 ? 0 : clock.deltaSeconds;
 
       if (timeLevel == 'suspicious') {
-        await _logTimeManipulation(timeDelta, timeLevel);
+        _logTimeManipulation(timeDelta, timeLevel);
         if (Get.isDialogOpen ?? false) Get.back();
         // BLOCKS attendance — does NOT write to Firestore
         _showSecurityAlert(
@@ -257,7 +227,7 @@ class PageIndexController extends GetxController {
 
       if (timeLevel == 'warning') {
         // Log but allow — admin can review
-        await _logTimeManipulation(timeDelta, timeLevel);
+        _logTimeManipulation(timeDelta, timeLevel);
         log('Time WARNING: ${timeDelta}s — proceeding');
       }
 
@@ -319,14 +289,15 @@ class PageIndexController extends GetxController {
       String address = '';
       try {
         final marks = await placemarkFromCoordinates(
-            position.latitude, position.longitude);
+                position.latitude, position.longitude)
+            .timeout(const Duration(seconds: 3));
         address =
             '${marks[0].street ?? ''}, ${marks[0].subLocality ?? ''}, ${marks[0].locality ?? ''}';
       } catch (_) {
         address = '${position.latitude}, ${position.longitude}';
       }
 
-      await updatePosition(position, address);
+      if (clock.online) unawaited(updatePosition(position, address));
       await checkPresenceInOffice(position, address, timeLevel, timeDelta);
     } catch (e) {
       if (Get.isDialogOpen ?? false) Get.back();
@@ -377,8 +348,12 @@ class PageIndexController extends GetxController {
       final uid = auth.currentUser!.uid;
       final col =
           firestore.collection('pegawai').doc(uid).collection('presence');
-      final now = DateTime.now();
-      final docID = DateFormat.yMd().format(now).replaceAll('/', '-');
+      final clock = _clock;
+      final now = clock?.trustedNow ?? DateTime.now();
+      // Day id and business-hour rules are evaluated in WIB, from trusted time.
+      final wib = now.toUtc().add(const Duration(hours: 7));
+      final docID = DateFormat.yMd('en_US').format(wib).replaceAll('/', '-');
+      final online = clock?.online ?? true;
       final status = inRange ? 'Di dalam Area' : 'Di luar Area';
       final locInfo = inRange
           ? '$officeName\n${distance.toStringAsFixed(0)}m dari kantor'
@@ -395,9 +370,17 @@ class PageIndexController extends GetxController {
         return;
       }
 
-      final todayDoc = await col.doc(docID).get();
+      // Offline: read the local cache only. A cache miss throws, which for our
+      // purposes means "no punch recorded yet today".
+      DocumentSnapshot<Map<String, dynamic>>? todayDoc;
+      try {
+        todayDoc = await col.doc(docID).get(
+            GetOptions(source: online ? Source.serverAndCache : Source.cache));
+      } on FirebaseException {
+        if (online) rethrow;
+      }
 
-      if (!todayDoc.exists) {
+      if (todayDoc == null || !todayDoc.exists) {
         // CHECK-IN
         await _showAttendanceDialog(
           title: 'att_validate'.tr,
@@ -405,14 +388,18 @@ class PageIndexController extends GetxController {
           isCheckIn: true,
           onConfirm: () async {
             Get.back();
-            await col.doc(docID).set({
-              'date': now.toIso8601String(),
-              'office': officeName,
-              'masuk': _buildEntry(now, pos, address, status, distance,
-                  officeName, timeDelta, timeLevel),
-              'masuk_server_ts': FieldValue.serverTimestamp(),
-            });
-            _showSuccess('att_success_in'.tr, isIn: true);
+            final synced = await _commit(
+                col.doc(docID).set({
+                  'date': now.toIso8601String(),
+                  'office': officeName,
+                  'masuk': _buildEntry(now, pos, address, status, distance,
+                      officeName, timeDelta, timeLevel,
+                      clock: clock),
+                  'masuk_server_ts': FieldValue.serverTimestamp(),
+                }),
+                online: online);
+            _showSuccess(synced ? 'att_success_in'.tr : 'att_queued'.tr,
+                isIn: true);
           },
         );
         return;
@@ -440,14 +427,14 @@ class PageIndexController extends GetxController {
       }
 
       // CHECK-OUT time gate: only after 16:30
-      final allowed = now.hour > 16 || (now.hour == 16 && now.minute >= 30);
+      final allowed = wib.hour > 16 || (wib.hour == 16 && wib.minute >= 30);
       if (!allowed) {
         final remaining =
-            DateTime(now.year, now.month, now.day, 16, 30).difference(now);
+            DateTime.utc(wib.year, wib.month, wib.day, 16, 30).difference(wib);
         _showSecurityAlert(
           title: 'att_checkout_time'.tr,
           message:
-              '${'att_checkout_time_msg'.tr}\n\nWaktu sekarang: ${DateFormat('HH:mm').format(now)} WIB\nSisa: ${remaining.inHours}j ${remaining.inMinutes % 60}m',
+              '${'att_checkout_time_msg'.tr}\n\nWaktu sekarang: ${DateFormat('HH:mm').format(wib)} WIB\nSisa: ${remaining.inHours}j ${remaining.inMinutes % 60}m',
           icon: Icons.schedule_rounded,
           color: FC.warning,
         );
@@ -475,18 +462,36 @@ class PageIndexController extends GetxController {
         }
       }
 
+      final masukTrustedMs = (d['masuk'] as Map?)?['trustedMs'] as int?;
+      if (masukTrustedMs != null &&
+          now.toUtc().millisecondsSinceEpoch < masukTrustedMs - 60000) {
+        _logTimeManipulation(
+            (masukTrustedMs - now.toUtc().millisecondsSinceEpoch) ~/ 1000,
+            'suspicious');
+        _showSecurityAlert(
+          title: 'sec_time_invalid'.tr,
+          message: 'Waktu keluar lebih awal dari waktu masuk. '
+              'Absensi keluar DIBATALKAN.',
+          icon: Icons.access_time_rounded,
+        );
+        return;
+      }
       await _showAttendanceDialog(
         title: 'att_validate'.tr,
         message: '${'att_confirm_out'.tr}\n\n$locInfo',
         isCheckIn: false,
         onConfirm: () async {
           Get.back();
-          await col.doc(docID).update({
-            'keluar': _buildEntry(now, pos, address, status, distance,
-                officeName, timeDelta, timeLevel),
-            'keluar_server_ts': FieldValue.serverTimestamp(),
-          });
-          _showSuccess('att_success_out'.tr, isIn: false);
+          final synced = await _commit(
+              col.doc(docID).update({
+                'keluar': _buildEntry(now, pos, address, status, distance,
+                    officeName, timeDelta, timeLevel,
+                    clock: clock),
+                'keluar_server_ts': FieldValue.serverTimestamp(),
+              }),
+              online: online);
+          _showSuccess(synced ? 'att_success_out'.tr : 'att_queued'.tr,
+              isIn: false);
         },
       );
     } catch (e) {
@@ -506,8 +511,9 @@ class PageIndexController extends GetxController {
     double dist,
     String office,
     int timeDelta,
-    String timeLevel,
-  ) =>
+    String timeLevel, {
+    ClockCheck? clock,
+  }) =>
       {
         'date': t.toIso8601String(),
         'lat': p.latitude,
@@ -518,9 +524,13 @@ class PageIndexController extends GetxController {
         'office': office,
         'accuracy': p.accuracy,
         'timestamp': FieldValue.serverTimestamp(),
-        'deviceTime': t.toIso8601String(),
+        'deviceTime': DateTime.now().toIso8601String(),
         'timeDeltaSeconds': timeDelta,
         'timeIntegrityLevel': timeLevel,
+        // Offline-attendance fields (verified server-side by verifyPresence)
+        'trustedMs': t.toUtc().millisecondsSinceEpoch,
+        'offline': !(clock?.online ?? true),
+        'anchorServerMs': clock?.anchorServerMs,
       };
 
   // ── Dialogs (themed) ─────────────────────────────────────────────
@@ -849,7 +859,7 @@ class PageIndexController extends GetxController {
 
   Future<void> _logSuspiciousActivity(Position pos) async {
     try {
-      await firestore
+      firestore
           .collection('pegawai')
           .doc(auth.currentUser!.uid)
           .collection('suspicious_activities')
@@ -865,7 +875,7 @@ class PageIndexController extends GetxController {
           'altitude': pos.altitude,
         },
         'deviceInfo': await _getDeviceInfo(),
-      });
+      }).then((_) {}, onError: (_) {});
     } catch (_) {}
   }
 

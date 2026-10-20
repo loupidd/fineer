@@ -9,8 +9,21 @@ import 'package:local_auth/local_auth.dart';
 import 'package:flutter/services.dart';
 import 'package:logger/logger.dart';
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class LoginController extends GetxController {
+  /// Starts the session clock read by checkSessionDuration() in main.dart and
+  /// PageIndexController. Must run after every successful login, otherwise the
+  /// splash screen sees "no session" and shows the login screen on every launch.
+  Future<void> _markSessionStart() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final now = DateTime.now();
+      await p.setInt('loginTimestamp', now.millisecondsSinceEpoch);
+      await p.setString('user_login_timestamp', now.toIso8601String());
+    } catch (_) {}
+  }
+
   final RxBool isLoading = false.obs;
   final RxBool hasBiometric = false.obs;
   final RxBool canUseBiometric = false.obs;
@@ -313,6 +326,7 @@ class LoginController extends GetxController {
 
       _logger.i('Login successful for user: $uid');
 
+      await _markSessionStart();
       Get.offAllNamed(Routes.HOME);
 
       Get.snackbar(
@@ -400,6 +414,7 @@ class LoginController extends GetxController {
 
       _logger.i('Password login successful');
 
+      await _markSessionStart();
       Get.offAllNamed(Routes.HOME);
 
       Get.snackbar(

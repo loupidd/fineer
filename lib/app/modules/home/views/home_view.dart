@@ -595,22 +595,43 @@ class _HeroCard extends StatelessWidget {
                 );
               }
 
-              return Row(children: [
-                Expanded(
-                    child: _TimeChip(
-                        label: 'home_check_in'.tr,
-                        time: inTime,
-                        done: hasIn,
-                        color: FC.success,
-                        isDark: isDark)),
-                const SizedBox(width: 12),
-                Expanded(
-                    child: _TimeChip(
-                        label: 'home_check_out'.tr,
-                        time: outTime,
-                        done: hasOut,
-                        color: FC.warning,
-                        isDark: isDark)),
+              final pendingSync =
+                  snap.hasData && snap.data!.metadata.hasPendingWrites;
+
+              return Column(mainAxisSize: MainAxisSize.min, children: [
+                Row(children: [
+                  Expanded(
+                      child: _TimeChip(
+                          label: 'home_check_in'.tr,
+                          time: inTime,
+                          done: hasIn,
+                          color: FC.success,
+                          isDark: isDark)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                      child: _TimeChip(
+                          label: 'home_check_out'.tr,
+                          time: outTime,
+                          done: hasOut,
+                          color: FC.warning,
+                          isDark: isDark)),
+                ]),
+                if (pendingSync)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.cloud_upload_outlined,
+                              size: 14, color: FC.warning),
+                          const SizedBox(width: 6),
+                          Text('att_pending'.tr,
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: FC.warning)),
+                        ]),
+                  ),
               ]);
             },
           ),
