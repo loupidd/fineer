@@ -19,6 +19,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:fineer/components/app_toast.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -227,7 +228,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 }
 
-// ─── Session check ───────────────────────
+// ─── Session check — identical to original ───────────────────────
 
 Future<void> checkSessionDuration() async {
   final prefs = await SharedPreferences.getInstance();
@@ -253,16 +254,13 @@ Future<void> checkSessionDuration() async {
   if ((currentTime - loginTimestamp) > sessionLimit &&
       (await ClockService.check()).online) {
     // (when offline, expiry is deferred so staff aren't locked out)
+    final hadUser = FirebaseAuth.instance.currentUser != null;
     await FirebaseAuth.instance.signOut();
     prefs.remove('loginTimestamp');
-    Get.snackbar(
-      'session_expired'.tr,
-      'session_expired_msg'.tr,
-      snackPosition: SnackPosition.BOTTOM,
-      margin: const EdgeInsets.all(16),
-      borderRadius: 12,
-      duration: const Duration(seconds: 4),
-    );
+    // Only tell the user their session ended if they were actually signed in.
+    if (hadUser) {
+      AppToast.session('session_expired'.tr, 'session_expired_msg'.tr);
+    }
     Get.offAllNamed(Routes.LOGIN);
   } else {
     final user = FirebaseAuth.instance.currentUser;
@@ -274,7 +272,7 @@ Future<void> checkSessionDuration() async {
   }
 }
 
-// ─── Version check ───────────────────────
+// ─── Version check — identical to original ───────────────────────
 
 Future<bool> isSupportedVersion() async {
   try {
@@ -289,7 +287,7 @@ Future<bool> isSupportedVersion() async {
   }
 }
 
-// ─── App lifecycle ───────────────────────
+// ─── App lifecycle — identical to original ───────────────────────
 
 class AppLifecycleObserver extends StatefulWidget {
   const AppLifecycleObserver({super.key});

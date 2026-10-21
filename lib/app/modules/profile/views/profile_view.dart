@@ -824,7 +824,13 @@ class _AppInfoSection extends StatelessWidget {
               const SizedBox(height: 8),
               _appInfoRow('Application', info?.appName ?? 'Fineer', tp, ts),
               _appInfoRow('Version', info?.version ?? '-', tp, ts),
-              _appInfoRow('Build', info?.buildNumber ?? '-', tp, ts),
+              _appInfoRow(
+                  'Build',
+                  info == null
+                      ? '-'
+                      : '${(int.tryParse(info.buildNumber) ?? 0) % 1000}',
+                  tp,
+                  ts),
             ],
           ),
         );

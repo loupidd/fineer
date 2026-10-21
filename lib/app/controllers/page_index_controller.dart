@@ -20,6 +20,8 @@ import 'dart:io';
 import 'dart:async';
 import 'dart:developer';
 import 'package:fineer/app/theme/app_theme.dart';
+import 'package:fineer/components/app_toast.dart';
+import 'package:fineer/components/result_animation.dart';
 
 class PageIndexController extends GetxController {
   RxInt pageIndex = 0.obs;
@@ -77,7 +79,9 @@ class PageIndexController extends GetxController {
     try {
       final prefs = await SharedPreferences.getInstance();
       if (prefs.getString(_loginTimeKey) == null) {
-        await _saveLoginTime();
+        // Only start the session clock for a signed-in user (login also
+        // writes it); never while sitting on the login screen.
+        if (auth.currentUser != null) await _saveLoginTime();
       } else {
         await _checkSessionExpiry();
       }
@@ -97,12 +101,21 @@ class PageIndexController extends GetxController {
     _checkSessionExpiry();
   }
 
+  // Guards: the check is started from initState, the 1-minute timer and
+  // _initializeSession, and ClockService.check() can take several seconds on a
+  // bad network, so without these several checks overlap and each one showed
+  // its own "session expired" toast.
+  bool _checkingSession = false;
+  bool _loggingOut = false;
+
   Future<void> _checkSessionExpiry() async {
+    if (_checkingSession || _loggingOut) return;
+    _checkingSession = true;
     try {
       final prefs = await SharedPreferences.getInstance();
       final loginStr = prefs.getString(_loginTimeKey);
       if (loginStr == null) {
-        await _saveLoginTime();
+        if (auth.currentUser != null) await _saveLoginTime();
         return;
       }
 
@@ -115,21 +128,28 @@ class PageIndexController extends GetxController {
       }
     } catch (e) {
       log('Session check error: $e');
+    } finally {
+      _checkingSession = false;
     }
   }
 
   Future<void> _performAutoLogout() async {
-    _sessionCheckTimer?.cancel();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_loginTimeKey);
-    await auth.signOut();
-    Get.offAllNamed(Routes.LOGIN);
-    Get.snackbar('session_expired'.tr, 'session_expired_msg'.tr,
-        snackPosition: SnackPosition.BOTTOM,
-        margin: const EdgeInsets.all(16),
-        borderRadius: 12,
-        duration: const Duration(seconds: 5),
-        isDismissible: false);
+    if (_loggingOut) return;
+    _loggingOut = true;
+    try {
+      final hadUser = auth.currentUser != null;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_loginTimeKey);
+      // Nobody signed in (e.g. stale timestamp on the login screen): clear it
+      // silently — no sign-out, no navigation, no toast.
+      if (!hadUser) return;
+      await auth.signOut();
+      Get.offAllNamed(Routes.LOGIN);
+      AppToast.session('session_expired'.tr, 'session_expired_msg'.tr);
+    } finally {
+      // Keep monitoring alive for the next login (it used to stop for good).
+      _loggingOut = false;
+    }
   }
 
   // ── Navigation ───────────────────────────────────────────────────
@@ -189,9 +209,7 @@ class PageIndexController extends GetxController {
 
   Future<void> processAttendance() async {
     if (isProcessingAttendance.value) {
-      Get.snackbar('att_waiting'.tr, '',
-          snackPosition: SnackPosition.BOTTOM,
-          duration: const Duration(seconds: 2));
+      AppToast.info('att_waiting'.tr, '', duration: const Duration(seconds: 2));
       return;
     }
 
@@ -237,8 +255,7 @@ class PageIndexController extends GetxController {
             DateTime.now().difference(lastLocationUpdate!).inSeconds;
         if (elapsed < minLocationUpdateInterval) {
           if (Get.isDialogOpen ?? false) Get.back();
-          Get.snackbar('Terlalu Cepat', 'Tunggu beberapa detik.',
-              snackPosition: SnackPosition.BOTTOM);
+          AppToast.warning('Terlalu Cepat', 'Tunggu beberapa detik.');
           return;
         }
       }
@@ -398,8 +415,8 @@ class PageIndexController extends GetxController {
                   'masuk_server_ts': FieldValue.serverTimestamp(),
                 }),
                 online: online);
-            _showSuccess(synced ? 'att_success_in'.tr : 'att_queued'.tr,
-                isIn: true);
+            _showSuccess('att_success_in'.tr,
+                isIn: true, queued: !synced, at: wib);
           },
         );
         return;
@@ -490,8 +507,8 @@ class PageIndexController extends GetxController {
                 'keluar_server_ts': FieldValue.serverTimestamp(),
               }),
               online: online);
-          _showSuccess(synced ? 'att_success_out'.tr : 'att_queued'.tr,
-              isIn: false);
+          _showSuccess('att_success_out'.tr,
+              isIn: false, queued: !synced, at: wib);
         },
       );
     } catch (e) {
@@ -569,16 +586,15 @@ class PageIndexController extends GetxController {
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Container(
-                width: 60,
-                height: 60,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: color.withValues(alpha: dark ? 0.15 : 0.08),
-                ),
-                child: Icon(icon, color: color, size: 28),
+              AnimatedResultIcon(
+                kind: color == FC.success
+                    ? ResultKind.success
+                    : color == FC.warning
+                        ? ResultKind.warning
+                        : ResultKind.error,
+                size: 104,
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 4),
               Text(title,
                   textAlign: TextAlign.center,
                   style: TextStyle(
@@ -706,18 +722,15 @@ class PageIndexController extends GetxController {
     );
   }
 
-  void _showSuccess(String msg, {required bool isIn}) {
-    Get.snackbar(
-      'success'.tr,
-      msg,
-      snackPosition: SnackPosition.BOTTOM,
-      backgroundColor: isIn ? FC.blue : FC.success,
-      colorText: Colors.white,
-      margin: const EdgeInsets.all(16),
-      borderRadius: 12,
-      icon: Icon(isIn ? Icons.login_rounded : Icons.logout_rounded,
-          color: Colors.white),
-      duration: const Duration(seconds: 3),
+  void _showSuccess(String msg,
+      {required bool isIn, bool queued = false, DateTime? at}) {
+    AttendanceResultDialog.show(
+      kind: queued ? ResultKind.queued : ResultKind.success,
+      title: queued ? 'att_queued_title'.tr : 'success'.tr,
+      message: queued ? 'att_queued'.tr : msg,
+      timeLabel: at == null ? null : '${DateFormat('HH:mm').format(at)} WIB',
+      timeIcon: isIn ? Icons.login_rounded : Icons.logout_rounded,
+      autoClose: Duration(milliseconds: queued ? 3600 : 2800),
     );
   }
 

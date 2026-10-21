@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import '../controllers/detail_presensi_controller.dart';
+import 'package:fineer/components/app_toast.dart';
 
 class DetailPresensiView extends GetView<DetailPresensiController> {
   const DetailPresensiView({super.key});
@@ -440,9 +441,7 @@ class _EntryRow extends StatelessWidget {
           GestureDetector(
             onTap: () {
               Clipboard.setData(ClipboardData(text: entry.value));
-              Get.snackbar('Disalin', entry.value,
-                  snackPosition: SnackPosition.BOTTOM,
-                  duration: const Duration(seconds: 2));
+              AppToast.success('Disalin', entry.value, duration: const Duration(seconds: 2), icon: Icons.copy_rounded);
             },
             child: Padding(
               padding: const EdgeInsets.only(left: 6),

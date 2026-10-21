@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get/get.dart';
+import 'package:fineer/components/app_toast.dart';
 
 class DetailPresensiController extends GetxController {
   final isLoading = true.obs;
@@ -23,12 +24,12 @@ class DetailPresensiController extends GetxController {
       } else {
         // Invalid argument type
         errorMessage.value = 'Invalid argument type: ${args.runtimeType}';
-        Get.snackbar('Error', 'Invalid argument type');
+        AppToast.error('Error', 'Invalid argument type');
         isLoading.value = false;
       }
     } else {
       errorMessage.value = 'No arguments provided';
-      Get.snackbar('Error', 'No data provided');
+      AppToast.error('Error', 'No data provided');
       isLoading.value = false;
     }
   }
@@ -54,11 +55,11 @@ class DetailPresensiController extends GetxController {
         presenceData.value = doc.data();
       } else {
         errorMessage.value = 'No presence data found with ID: $id';
-        Get.snackbar('Error', 'Presence data not found');
+        AppToast.error('Error', 'Presence data not found');
       }
     } catch (e) {
       errorMessage.value = 'Failed to load presence data: $e';
-      Get.snackbar('Error', 'Failed to load presence data');
+      AppToast.error('Error', 'Failed to load presence data');
     } finally {
       isLoading.value = false;
     }

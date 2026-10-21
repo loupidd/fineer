@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:logger/logger.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fineer/components/app_toast.dart';
 
 class LoginController extends GetxController {
   /// Starts the session clock read by checkSessionDuration() in main.dart and
@@ -269,16 +270,7 @@ class LoginController extends GetxController {
     showPasswordLogin.value = true;
 
     if (shouldShowSnackbar) {
-      Get.snackbar(
-        title,
-        message,
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: bgColor,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-        margin: const EdgeInsets.all(16),
-        borderRadius: 12,
-      );
+      AppToast.fromColor(title, message, color: bgColor, duration: const Duration(seconds: 3));
     }
   }
 
@@ -329,17 +321,7 @@ class LoginController extends GetxController {
       await _markSessionStart();
       Get.offAllNamed(Routes.HOME);
 
-      Get.snackbar(
-        'Welcome Back!',
-        'Logged in with ${biometricType.value}',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFF10B981),
-        colorText: Colors.white,
-        duration: const Duration(seconds: 2),
-        margin: const EdgeInsets.all(16),
-        borderRadius: 12,
-        icon: Icon(getBiometricIcon(), color: Colors.white),
-      );
+      AppToast.success('Welcome Back!', 'Logged in with ${biometricType.value}', duration: const Duration(seconds: 2));
     } on FirebaseAuthException catch (e) {
       _logger.e('Firebase auth error during biometric login: ${e.code}');
       await _handleFirebaseAuthError(e);
@@ -350,15 +332,7 @@ class LoginController extends GetxController {
       showPasswordLogin.value = true;
       biometricAuthFailed.value = true;
 
-      Get.snackbar(
-        'Login Failed',
-        'Please use password to login',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFFEF4444),
-        colorText: Colors.white,
-        margin: const EdgeInsets.all(16),
-        borderRadius: 12,
-      );
+      AppToast.error('Login Failed', 'Please use password to login');
     } finally {
       isLoading.value = false;
     }
@@ -366,15 +340,7 @@ class LoginController extends GetxController {
 
   Future<void> login() async {
     if (emailC.text.trim().isEmpty || passC.text.isEmpty) {
-      Get.snackbar(
-        'Incomplete Data',
-        'Email & Password are required',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFFEF4444),
-        colorText: Colors.white,
-        margin: const EdgeInsets.all(16),
-        borderRadius: 12,
-      );
+      AppToast.error('Incomplete Data', 'Email & Password are required');
       return;
     }
 
@@ -417,30 +383,13 @@ class LoginController extends GetxController {
       await _markSessionStart();
       Get.offAllNamed(Routes.HOME);
 
-      Get.snackbar(
-        'Login Successful',
-        'Welcome back!',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFF10B981),
-        colorText: Colors.white,
-        duration: const Duration(seconds: 2),
-        margin: const EdgeInsets.all(16),
-        borderRadius: 12,
-      );
+      AppToast.success('Login Successful', 'Welcome back!', duration: const Duration(seconds: 2));
     } on FirebaseAuthException catch (e) {
       _logger.e('Firebase auth error during password login: ${e.code}');
       await _handleFirebaseAuthError(e);
     } catch (e) {
       _logger.e('Login error', error: e);
-      Get.snackbar(
-        'Error',
-        'Unable to login. Please try again.',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFFEF4444),
-        colorText: Colors.white,
-        margin: const EdgeInsets.all(16),
-        borderRadius: 12,
-      );
+      AppToast.error('Error', 'Unable to login. Please try again.');
     } finally {
       isLoading.value = false;
     }
@@ -480,16 +429,7 @@ class LoginController extends GetxController {
         message = e.message ?? 'Login failed';
     }
 
-    Get.snackbar(
-      title,
-      message,
-      snackPosition: SnackPosition.BOTTOM,
-      backgroundColor: const Color(0xFFEF4444),
-      colorText: Colors.white,
-      duration: const Duration(seconds: 3),
-      margin: const EdgeInsets.all(16),
-      borderRadius: 12,
-    );
+    AppToast.error(title, message, duration: const Duration(seconds: 3));
   }
 
   void _updateLoginTimestamp(String uid, String method) {
@@ -526,29 +466,13 @@ class LoginController extends GetxController {
         final isDeviceSupported = await _localAuth.isDeviceSupported();
 
         if (!canCheckBiometrics && !isDeviceSupported) {
-          Get.snackbar(
-            'Not Available',
-            'Biometric authentication is not available on this device',
-            snackPosition: SnackPosition.BOTTOM,
-            backgroundColor: const Color(0xFFF59E0B),
-            colorText: Colors.white,
-            margin: const EdgeInsets.all(16),
-            borderRadius: 12,
-          );
+          AppToast.warning('Not Available', 'Biometric authentication is not available on this device');
           return false;
         }
 
         _availableBiometrics = await _localAuth.getAvailableBiometrics();
         if (_availableBiometrics!.isEmpty) {
-          Get.snackbar(
-            'Not Enrolled',
-            'Please enroll biometric authentication in device settings first',
-            snackPosition: SnackPosition.BOTTOM,
-            backgroundColor: const Color(0xFFF59E0B),
-            colorText: Colors.white,
-            margin: const EdgeInsets.all(16),
-            borderRadius: 12,
-          );
+          AppToast.warning('Not Enrolled', 'Please enroll biometric authentication in device settings first');
           return false;
         }
 
@@ -577,30 +501,12 @@ class LoginController extends GetxController {
 
       _logger.i('Biometric successfully enabled for user');
 
-      Get.snackbar(
-        'Success!',
-        '${biometricType.value} login enabled',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFF10B981),
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-        margin: const EdgeInsets.all(16),
-        borderRadius: 12,
-        icon: Icon(getBiometricIcon(), color: Colors.white),
-      );
+      AppToast.success('Success!', '${biometricType.value} login enabled', duration: const Duration(seconds: 3));
 
       return true;
     } catch (e) {
       _logger.e('Error enabling biometric', error: e);
-      Get.snackbar(
-        'Error',
-        'Failed to enable biometric login',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFFEF4444),
-        colorText: Colors.white,
-        margin: const EdgeInsets.all(16),
-        borderRadius: 12,
-      );
+      AppToast.error('Error', 'Failed to enable biometric login');
       return false;
     }
   }
@@ -618,15 +524,7 @@ class LoginController extends GetxController {
 
         _logger.i('Biometric disabled for user');
 
-        Get.snackbar(
-          'Disabled',
-          'Biometric login has been disabled',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: const Color(0xFFF59E0B),
-          colorText: Colors.white,
-          margin: const EdgeInsets.all(16),
-          borderRadius: 12,
-        );
+        AppToast.warning('Disabled', 'Biometric login has been disabled');
 
         return true;
       }

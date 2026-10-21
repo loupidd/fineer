@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:get/get.dart';
 import 'package:logger/logger.dart';
 import 'package:fineer/app/services/notification_service.dart';
+import 'package:fineer/components/app_toast.dart';
 
 class ProfileController extends GetxController {
   final FirebaseAuth auth = FirebaseAuth.instance;
@@ -135,11 +136,7 @@ class ProfileController extends GetxController {
       logger.i('Notification preference updated to: $value');
     } catch (e) {
       logger.e('Error updating notification preference', error: e);
-      Get.snackbar(
-        'Error',
-        'Failed to update notification settings',
-        snackPosition: SnackPosition.BOTTOM,
-      );
+      AppToast.error('Error', 'Failed to update notification settings');
     }
   }
 
@@ -149,11 +146,7 @@ class ProfileController extends GetxController {
       Get.offAllNamed('/login');
     } catch (e) {
       logger.e('Error signing out', error: e);
-      Get.snackbar(
-        'Error',
-        'Failed to sign out',
-        snackPosition: SnackPosition.BOTTOM,
-      );
+      AppToast.error('Error', 'Failed to sign out');
     }
   }
 

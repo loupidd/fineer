@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:fineer/components/app_toast.dart';
 
 class AddPegawaiController extends GetxController {
   TextEditingController nameC = TextEditingController();
@@ -54,26 +55,26 @@ class AddPegawaiController extends GetxController {
               email: emailAdmin, password: passAdminC.text);
           Get.back(); // Tutup dialog
           Get.back(); //Back to home
-          Get.snackbar("Berhasil", "Berhasil menambahkan pegawai");
+          AppToast.success("Berhasil", "Berhasil menambahkan pegawai");
           //Relogin
 
           //await auth.signInWithEmailAndPassword(email: email, password: password)
         }
       } on FirebaseAuthException catch (e) {
         if (e.code == 'weak-password') {
-          Get.snackbar("Terjadi Kesalahan", 'Password terlalu lemah');
+          AppToast.error("Terjadi Kesalahan", 'Password terlalu lemah');
         } else if (e.code == 'email-already-in-use') {
-          Get.snackbar("Terjadi Kesalahan", 'Email Sudah Terdaftar');
+          AppToast.error("Terjadi Kesalahan", 'Email Sudah Terdaftar');
         } else if (e.code == 'Wrong-password') {
-          Get.snackbar('Terjadi Kesalahan', 'Password Salah');
+          AppToast.error('Terjadi Kesalahan', 'Password Salah');
         } else {
-          Get.snackbar('Terjadi Kesalahan', '${e.code}');
+          AppToast.error('Terjadi Kesalahan', '${e.code}');
         }
       } catch (e) {
-        Get.snackbar("Terjadi Kesalahan", 'Coba Kembali');
+        AppToast.error("Terjadi Kesalahan", 'Coba Kembali');
       }
     } else {
-      Get.snackbar('Terjadi Kesalahan', 'Password Wajib Diisi');
+      AppToast.error('Terjadi Kesalahan', 'Password Wajib Diisi');
     }
   }
 
@@ -110,7 +111,7 @@ class AddPegawaiController extends GetxController {
             ),
           ]);
     } else {
-      Get.snackbar("Terjadi Kesalahan", 'Semua Data Harus Diisi');
+      AppToast.error("Terjadi Kesalahan", 'Semua Data Harus Diisi');
     }
   }
 }

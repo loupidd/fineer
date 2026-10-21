@@ -7,6 +7,7 @@ import 'package:local_auth/local_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:logger/logger.dart';
 import 'dart:convert';
+import 'package:fineer/components/app_toast.dart';
 
 class BiometricController extends GetxController {
   final LocalAuthentication _localAuth = LocalAuthentication();
@@ -137,30 +138,14 @@ class BiometricController extends GetxController {
 
       String? uid = _auth.currentUser?.uid;
       if (uid == null) {
-        Get.snackbar(
-          'Error',
-          'No authenticated user found',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: const Color(0xFFEF4444),
-          colorText: Colors.white,
-          margin: const EdgeInsets.all(16),
-          borderRadius: 12,
-        );
+        AppToast.error('Error', 'No authenticated user found');
         return false;
       }
 
       // Get current user email
       String? email = _auth.currentUser?.email;
       if (email == null) {
-        Get.snackbar(
-          'Error',
-          'User email not found',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: const Color(0xFFEF4444),
-          colorText: Colors.white,
-          margin: const EdgeInsets.all(16),
-          borderRadius: 12,
-        );
+        AppToast.error('Error', 'User email not found');
         return false;
       }
 
@@ -181,15 +166,7 @@ class BiometricController extends GetxController {
         _logger.i('Password verified successfully');
       } on FirebaseAuthException catch (e) {
         _logger.e('Password verification failed: ${e.code}');
-        Get.snackbar(
-          'Incorrect Password',
-          'The password you entered is incorrect',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: const Color(0xFFEF4444),
-          colorText: Colors.white,
-          margin: const EdgeInsets.all(16),
-          borderRadius: 12,
-        );
+        AppToast.error('Incorrect Password', 'The password you entered is incorrect');
         return false;
       }
 
@@ -217,29 +194,11 @@ class BiometricController extends GetxController {
 
       _logger.i('Biometric successfully enabled');
 
-      Get.snackbar(
-        'Success!',
-        '${getBiometricTypeName()} login has been enabled',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFF10B981),
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-        margin: const EdgeInsets.all(16),
-        borderRadius: 12,
-        icon: Icon(getBiometricIcon(), color: Colors.white),
-      );
+      AppToast.success('Success!', '${getBiometricTypeName()} login has been enabled', duration: const Duration(seconds: 3));
       return true;
     } catch (e) {
       _logger.e('Error enabling biometric', error: e);
-      Get.snackbar(
-        'Error',
-        'Failed to enable biometric login',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFFEF4444),
-        colorText: Colors.white,
-        margin: const EdgeInsets.all(16),
-        borderRadius: 12,
-      );
+      AppToast.error('Error', 'Failed to enable biometric login');
       return false;
     } finally {
       isProcessing.value = false;
@@ -387,30 +346,14 @@ class BiometricController extends GetxController {
 
         _logger.i('Biometric disabled successfully');
 
-        Get.snackbar(
-          'Disabled',
-          'Biometric login has been disabled',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: const Color(0xFFF59E0B),
-          colorText: Colors.white,
-          margin: const EdgeInsets.all(16),
-          borderRadius: 12,
-        );
+        AppToast.warning('Disabled', 'Biometric login has been disabled');
 
         return true;
       }
       return false;
     } catch (e) {
       _logger.e('Error disabling biometric', error: e);
-      Get.snackbar(
-        'Error',
-        'Failed to disable biometric login',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: const Color(0xFFEF4444),
-        colorText: Colors.white,
-        margin: const EdgeInsets.all(16),
-        borderRadius: 12,
-      );
+      AppToast.error('Error', 'Failed to disable biometric login');
       return false;
     } finally {
       isProcessing.value = false;
@@ -421,15 +364,7 @@ class BiometricController extends GetxController {
   Future<bool> authenticateWithBiometric({String? reason}) async {
     try {
       if (!isBiometricAvailable.value) {
-        Get.snackbar(
-          'Not Available',
-          'Biometric authentication is not available on this device',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: const Color(0xFFF59E0B),
-          colorText: Colors.white,
-          margin: const EdgeInsets.all(16),
-          borderRadius: 12,
-        );
+        AppToast.warning('Not Available', 'Biometric authentication is not available on this device');
         return false;
       }
 
@@ -473,15 +408,7 @@ class BiometricController extends GetxController {
       }
 
       if (shouldShowSnackbar) {
-        Get.snackbar(
-          'Authentication Error',
-          message,
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: const Color(0xFFEF4444),
-          colorText: Colors.white,
-          margin: const EdgeInsets.all(16),
-          borderRadius: 12,
-        );
+        AppToast.error('Authentication Error', message);
       }
       return false;
     } catch (e) {
